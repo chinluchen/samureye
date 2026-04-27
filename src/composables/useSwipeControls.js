@@ -4,14 +4,14 @@ import { directionFromSwipe } from '../data/directions.js';
 import { sfx } from '../services/SoundEngine.js';
 import { drawSlashLine } from '../utils/effects.js';
 
-export function useSwipeControls({ gameState, playerDebuff, processSlash }) {
+export function useSwipeControls({ gameState, playerDebuff, isPaused, processSlash }) {
   let touchStartPos = { x: 0, y: 0 };
   let isSwiping = false;
 
   function onTouchStart(event) {
     sfx.init();
 
-    if (gameState.value !== 'playing' || playerDebuff.value === 'cataract') return;
+    if (gameState.value !== 'playing' || isPaused.value || playerDebuff.value === 'cataract') return;
     if (event.target.closest('button')) return;
 
     touchStartPos = {
@@ -22,7 +22,7 @@ export function useSwipeControls({ gameState, playerDebuff, processSlash }) {
   }
 
   function onTouchMove(event) {
-    if (!isSwiping) return;
+    if (!isSwiping || isPaused.value) return;
 
     const dx = event.touches[0].clientX - touchStartPos.x;
     const dy = event.touches[0].clientY - touchStartPos.y;
