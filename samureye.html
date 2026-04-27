@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Samureye - 視覺巔峰修正版</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@900&display=swap');
+        
+        :root {
+            color-scheme: light;
+            --safe-top: env(safe-area-inset-top);
+            --safe-bottom: env(safe-area-inset-bottom);
+            --bg-color: #f5f2e9;
+            --target-color: #1a1a1a;
+        }
+
+        /* 終結時刻：色彩同步與全境濾鏡 */
+        .is-finishing {
+            --bg-color: #b0b0b0; 
+            --target-color: #333333;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-color);
+            transition: background-color 0.8s ease;
+            touch-action: none;
+            overflow: hidden;
+            width: 100vw; height: 100vh; margin: 0;
+        }
+
+        #app {
+            position: relative;
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            transition: background-color 0.8s ease;
+        }
+
+        /* 全境霧化包裝層 */
+        #game-world-wrapper {
+            position: absolute;
+            inset: 0;
+            transition: filter 1.2s ease, opacity 1.2s ease;
+            will-change: filter;
+        }
+
+        .is-finishing #game-world-wrapper {
+            filter: blur(18px) grayscale(0.6);
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* 視標核心 (1:1:3 比例) */
+        .c-ring-base {
+            width: 160px; height: 160px;
+            border: 32px solid var(--target-color);
+            border-radius: 50%;
+            position: relative;
+            box-sizing: border-box;
+            background: transparent;
+            transition: border-color 0.8s ease;
+        }
+
+        /* 無縫遮罩 */
+        .c-ring-base::after {
+            content: "";
+            position: absolute;
+            background-color: var(--bg-color);
+            width: 66px; height: 38px; 
+            top: 50%; right: -36px;
+            transform: translateY(-50%);
+            z-index: 2;
+            transition: background-color 0.8s ease;
+        }
+
+        #game-canvas-layer { z-index: 10; position: absolute; inset: 0; pointer-events: none; }
+        #cutscene-layer { z-index: 400; position: fixed; inset: 0; pointer-events: none; background: rgba(0, 0, 0, 0.85); opacity: 0; display: flex; align-items: center; justify-content: center; }
+        #ui-layer { z-index: 500; position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; }
+        #fx-layer { z-index: 700; position: absolute; inset: 0; pointer-events: none; }
+        
+        #cataract-mist-layer {
+            z-index: 900; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 340px; height: 340px; background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.85) 45%, transparent 75%);
+            filter: blur(15px); pointer-events: none; opacity: 0; display: flex; align-items: center; justify-content: center;
+        }
+        
+        #result-layer { z-index: 2000; position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; }
+
+        /* 30px 有機不規則刀鋒 */
+        .slash-line {
+            position: absolute; height: 60px;
+            background: linear-gradient(90deg, transparent, #fff 15%, #fff 85%, transparent);
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.9), 0 0 80px rgba(255, 255, 255, 0.3);
+            z-index: 710; transform-origin: 0 50%; opacity: 0;
+            will-change: transform, opacity, clip-path;
+        }
+
+        /* 數值彈出樣式 */
+        .damage-popup {
+            position: absolute;
+            font-weight: 900;
+            font-size: 3.8rem;
+            text-shadow: 4px 4px 0px #000;
+            font-style: italic;
+            z-index: 750;
+            pointer-events: none;
+            white-space: nowrap;
+            padding: 10px 50px;
+            display: inline-block;
+        }
+
+        .feedback-pop {
+            position: fixed;
+            font-size: 3.8rem;
+            font-weight: 900;
+            font-style: italic;
+            z-index: 720;
+            pointer-events: none;
+            text-shadow: 4px 4px 0px #000;
+            -webkit-text-stroke: 1.5px #fff;
+        }
+
+        #timer-display { padding: 0 45px; overflow: visible; display: inline-block; min-width: 140px; text-align: center; }
+        .cutscene-portrait { position: absolute; font-size: 15rem; left: -30%; }
+        .cutscene-skill-name { font-size: 4rem; font-weight: 900; font-style: italic; color: #fff; text-shadow: 0 0 25px #facc15; transform: skewX(-15deg); white-space: nowrap; }
+
+        .pixel-border { border: 4px solid #1a1a1a; box-shadow: 6px 6px 0px #1a1a1a; background: white; pointer-events: auto; }
+        @keyframes ui-breathing { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+        .breathing { animation: ui-breathing 4s ease-in-out infinite; }
+
+        .hud-top {
+            padding-top: max(2.5rem, calc(var(--safe-top) + 1rem));
+        }
+
+        .hud-bottom {
+            padding-bottom: max(2.5rem, calc(var(--safe-bottom) + 1rem));
+        }
+
+        .split-shard-container { position: absolute; pointer-events: none; width: 160px; height: 160px; z-index: 100; }
+        .shard-half { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; }
+        .shard-top { clip-path: inset(0 0 50% 0); }
+        .shard-bottom { clip-path: inset(50% 0 0 0); }
+        .shard-circle { width: 160px; height: 160px; border: 32px solid var(--target-color); border-radius: 50%; box-sizing: border-box; position: absolute; transition: border-color 0.8s ease; }
+
+        .announcement-box {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 80; padding: 15px 40px; background-color: #facc15; border: 4px solid #000; 
+            box-shadow: 8px 8px 0px #000; font-size: 2.2rem; font-weight: 900; font-style: italic; 
+            white-space: nowrap; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" :class="{'is-finishing': gameState === 'finishing'}">
+        
+        <div id="game-world-wrapper">
+            <div id="fx-layer"></div>
+
+            <!-- 奧義特寫 -->
+            <div id="cutscene-layer" :class="{'enemy-ult': isEnemyTurn}">
+                <div class="cutscene-portrait">{{ isEnemyTurn ? '👹' : '🥷' }}</div>
+                <div class="cutscene-skill-name"></div>
+            </div>
+
+            <div id="cataract-mist-layer">
+                <div class="text-gray-600 font-black text-2xl drop-shadow-lg opacity-40">無法攻擊</div>
+            </div>
+
+            <div id="game-canvas-layer">
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <div v-show="gameState !== 'intro' && !isSplitting" 
+                         id="target-anchor" 
+                         class="relative z-20 flex items-center justify-center w-40 h-40"
+                         :style="[targetTransform, {opacity: (gameState === 'skillCutscene' || gameState === 'finishing' ? 0.3 : 1)}]">
+                        <div class="c-ring-base"></div>
+                    </div>
+                    <div v-if="announcementText" id="round-announcement" class="announcement-box">{{ announcementText }}</div>
+                </div>
+            </div>
+
+            <div id="ui-layer">
+                <div class="hud-top px-5 flex justify-end items-start breathing">
+                    <div id="enemy-hp-anchor" class="pixel-border p-3 w-60 rounded-br-xl">
+                        <div class="flex justify-between text-[10px] font-black mb-1">
+                            <span>Enemy: Master HOU</span>
+                            <span class="text-red-600 font-bold">HITS: {{ enemyRoundHits }}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="flex-1 bg-gray-200 h-3 rounded-full border border-black overflow-hidden shadow-inner">
+                                <div class="h-full bg-red-600 transition-all duration-1000" :style="{width: (enemyHp/maxHp*100) + '%'}"></div>
+                            </div>
+                            <span class="text-[11px] font-black whitespace-nowrap">{{ Math.max(0, Math.ceil(enemyHp)) }} / {{ maxHp }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex justify-center items-start pt-10">
+                    <div id="timer-display" class="text-7xl font-black italic tracking-tighter drop-shadow-lg">
+                        {{ timeLeft.toFixed(1) }}
+                    </div>
+                </div>
+
+                <div class="hud-bottom px-5">
+                    <div class="flex gap-3 mb-5">
+                        <button v-for="skill in skills" :key="skill.id" 
+                                @touchstart.stop="useSkill(skill)" @click.stop="useSkill(skill)"
+                                :disabled="skillPoints < skill.cost || (gameState !== 'playing')"
+                                class="pointer-events-auto w-16 h-16 rounded-xl flex flex-col items-center justify-center border-4 transition-all"
+                                :class="skillPoints >= skill.cost && gameState === 'playing' ? 'bg-white border-black shadow-[6px_6px_0px_black] active:translate-x-1 active:translate-y-1 active:shadow-none' : 'bg-gray-100 opacity-50'">
+                            <span class="text-xl">{{ skill.icon }}</span>
+                            <span class="text-[8px] font-black uppercase">{{ skill.name }}</span>
+                        </button>
+                    </div>
+                    <div id="player-hp-anchor" class="pixel-border flex-1 p-3 rounded-tr-2xl bg-white/95 shadow-md">
+                        <div class="flex justify-between text-[10px] font-black mb-1">
+                            <span>SAMUREYE (You)</span>
+                            <span class="text-blue-600 font-bold">COMBO: {{ combo }}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="flex-1 bg-gray-200 h-5 rounded-full border border-black overflow-hidden relative shadow-inner">
+                                <div class="h-full bg-blue-500 transition-all duration-1000" :style="{width: (playerHp/maxHp*100) + '%'}"></div>
+                            </div>
+                            <span class="text-[11px] font-black whitespace-nowrap">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ maxHp }}</span>
+                        </div>
+                        <div class="text-[10px] font-black mt-1 uppercase">MP: {{ skillPoints }}%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="result-layer" v-if="gameState === 'gameResult'">
+            <h2 class="text-8xl font-black mb-10 italic tracking-tighter" :class="playerHp > enemyHp ? 'text-green-400' : 'text-red-500'">
+                {{ playerHp > enemyHp ? '勝利' : '敗北' }}
+            </h2>
+            <div class="bg-white/10 p-8 rounded-3xl border-2 border-white/20 w-80 mb-12 text-left space-y-5 shadow-2xl backdrop-blur-md">
+                <div class="flex justify-between items-center"><span class="text-gray-300 font-bold">總擊中次數</span><span class="text-yellow-400 font-black text-3xl">{{ playerTotalHits }}</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-300 font-bold">剩餘血量</span><span class="text-green-400 font-black text-2xl">{{ Math.max(0, Math.ceil(playerHp)) }}</span></div>
+            </div>
+            <button @click="initGame" class="pointer-events-auto bg-white text-black px-20 py-6 text-3xl font-black rounded-2xl active:scale-95 shadow-[0_12px_0_#999]">再挑戰</button>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+
+        // 程序化音效引擎
+        class SoundEngine {
+            constructor() { this.ctx = null; }
+            init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (this.ctx.state === 'suspended') this.ctx.resume(); }
+            playSlash() {
+                this.init(); const bufferSize = this.ctx.sampleRate * 0.15; const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate); const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+                const filter = this.ctx.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.setValueAtTime(1000, this.ctx.currentTime); filter.frequency.exponentialRampToValueAtTime(5000, this.ctx.currentTime + 0.1);
+                const gain = this.ctx.createGain(); gain.gain.setValueAtTime(0.2, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                noise.connect(filter); filter.connect(gain); gain.connect(this.ctx.destination); noise.start();
+            }
+            playHit() {
+                this.init(); const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain(); osc.type = 'triangle'; osc.frequency.setValueAtTime(150, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                osc.connect(gain); gain.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + 0.2);
+            }
+            playUlt() {
+                this.init(); const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain(); osc.type = 'square'; osc.frequency.setValueAtTime(60, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.6);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime); gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6);
+                osc.connect(gain); gain.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + 0.6);
+            }
+        }
+        const sfx = new SoundEngine();
+
+        createApp({
+            setup() {
+                const maxHp = 500;
+                const playerHp = ref(maxHp);
+                const enemyHp = ref(maxHp);
+                const currentRound = ref(1);
+                const timeLeft = ref(8.0); 
+                const gameState = ref('intro'); 
+                const announcementText = ref('');
+                const combo = ref(0);
+                const playerTotalHits = ref(0);
+                const enemyRoundHits = ref(0);
+                const skillPoints = ref(0);
+                const playerDebuff = ref(null);
+                const enemyDebuff = ref(null);
+                const isSplitting = ref(false);
+                const isEnemyTurn = ref(false);
+
+                const directions = [
+                    { id: 'right', deg: 0 }, { id: 'down-right', deg: 45 },
+                    { id: 'down', deg: 90 }, { id: 'down-left', deg: 135 },
+                    { id: 'left', deg: 180 }, { id: 'up-left', deg: 225 },
+                    { id: 'up', deg: 270 }, { id: 'up-right', deg: 315 }
+                ];
+
+                const currentTarget = reactive({ rotation: 0, id: 'right' });
+                const targetTransform = computed(() => ({ transform: `rotate(${currentTarget.rotation}deg)` }));
+
+                const skills = [
+                    { id: 'cataract', name: '奧義·白內障', icon: '☁️', cost: 40 },
+                    { id: 'astig', name: '極意·散光斬', icon: '🕶️', cost: 50 },
+                    { id: 'dilation', name: '秘劍·散瞳術', icon: '✨', cost: 70 }
+                ];
+
+                const enemySkills = [
+                    { id: 'cataract', name: '奧義·白內障', icon: '☁️', damage: 30 },
+                    { id: 'glaucoma', name: '禁招·青光爆', icon: '🟢', damage: 65 },
+                    { id: 'macular', name: '魔眼·黃斑殺', icon: '👁️', damage: 95 }
+                ];
+
+                let timerInterval = null;
+                let touchStartPos = { x: 0, y: 0 };
+                let isSwiping = false;
+
+                onMounted(() => {
+                    window.addEventListener('touchstart', (e) => {
+                        sfx.init();
+                        if (gameState.value !== 'playing' || playerDebuff.value === 'cataract') return;
+                        if (e.target.closest('button')) return;
+                        touchStartPos.x = e.touches[0].clientX; touchStartPos.y = e.touches[0].clientY;
+                        isSwiping = true;
+                    }, { passive: false });
+
+                    window.addEventListener('touchmove', (e) => {
+                        if (!isSwiping) return;
+                        const dx = e.touches[0].clientX - touchStartPos.x;
+                        const dy = e.touches[0].clientY - touchStartPos.y;
+                        if (Math.sqrt(dx*dx + dy*dy) > 45) {
+                            isSwiping = false; 
+                            let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                            if (angle < 0) angle += 360;
+                            let index = Math.round(angle / 45) % 8;
+                            sfx.playSlash();
+                            drawSlashLine(touchStartPos.x, touchStartPos.y, e.touches[0].clientX, e.touches[0].clientY);
+                            processSlash(directions[index].id, e.touches[0].clientX, e.touches[0].clientY);
+                        }
+                    }, { passive: false });
+
+                    window.addEventListener('touchend', () => {
+                        isSwiping = false;
+                    }, { passive: false });
+
+                    window.addEventListener('touchcancel', () => {
+                        isSwiping = false;
+                    }, { passive: false });
+                    initGame();
+                });
+
+                const triggerImpactShake = (angleDeg = 0, power = 18, duration = 0.05) => {
+                    const rad = angleDeg * Math.PI / 180;
+                    gsap.killTweensOf("#app");
+                    gsap.to("#app", {
+                        x: Math.cos(rad) * power, y: Math.sin(rad) * power,
+                        duration: duration, yoyo: true, repeat: 1,
+                        onComplete: () => { gsap.set("#app", { x: 0, y: 0, clearProps: "transform" }); }
+                    });
+                };
+
+                const generateOrganicBladePath = () => {
+                    const rand = (min, max) => Math.random() * (max - min) + min;
+                    const p = ["0% 50%"];
+                    for(let i=1; i<=5; i++) p.push(`${rand(i*15, (i+1)*15)}% ${rand(0, 45)}%`);
+                    p.push("100% 50%");
+                    for(let i=5; i>=1; i--) p.push(`${rand(i*15, (i+1)*15)}% ${rand(55, 100)}%`);
+                    return `polygon(${p.join(", ")})`;
+                };
+
+                const drawSlashLine = (x1, y1, x2, y2, muteShake = false) => {
+                    const fxLayer = document.getElementById('fx-layer');
+                    const dist = Math.sqrt(Math.pow(x2-x1, 2) + Math.pow(y2-y1, 2));
+                    const angle = Math.atan2(y2-y1, x2-x1) * 180 / Math.PI;
+                    const line = document.createElement('div');
+                    line.className = 'slash-line';
+                    line.style.width = `${dist * 5}px`; line.style.left = `${x1}px`; line.style.top = `${y1}px`;
+                    line.style.transform = `rotate(${angle}deg)`;
+                    line.style.clipPath = generateOrganicBladePath();
+                    fxLayer.appendChild(line);
+                    const scale = (gameState.value === 'finishing') ? 2.5 : 1;
+                    const tl = gsap.timeline();
+                    tl.to(line, { opacity: 1, duration: 0.05 * scale });
+                    tl.to(line, { 
+                        opacity: 0, scaleY: 0.1, width: `+=${dist * 4}`, 
+                        x: Math.cos(angle*Math.PI/180)*200, y: Math.sin(angle*Math.PI/180)*200, 
+                        duration: 0.45 * scale, delay: 0.1 * scale, ease: "expo.out", 
+                        onComplete: () => line.remove() 
+                    });
+                    if (!muteShake) triggerImpactShake(angle, (gameState.value === 'finishing' ? 35 : 18));
+                };
+
+                const showDamagePopup = (amount, isPlayer, color = "#ef4444") => {
+                    const fxLayer = document.getElementById('fx-layer');
+                    const anchorId = isPlayer ? 'player-hp-anchor' : 'enemy-hp-anchor';
+                    const anchor = document.getElementById(anchorId);
+                    if (!anchor) return;
+                    const rect = anchor.getBoundingClientRect();
+                    const popup = document.createElement('div');
+                    popup.className = 'damage-popup'; popup.innerText = amount; popup.style.color = color;
+                    popup.style.left = (rect.left + rect.width / 2) + "px"; popup.style.top = (rect.top - 30) + "px";
+                    fxLayer.appendChild(popup);
+                    const moveY = isPlayer ? -200 : 200;
+                    const randomXRange = 70;
+                    const scaleFactor = (gameState.value === 'finishing') ? 3 : 1;
+                    gsap.set(popup, { xPercent: -50 });
+                    const tl = gsap.timeline({ onComplete: () => popup.remove() });
+                    tl.fromTo(popup, { opacity: 0, scale: 0.6, y: 0, x: 0 }, { opacity: 1, scale: 1.4, duration: 0.2 * scaleFactor, ease: "back.out(3)" })
+                      .to(popup, { x: (Math.random() - 0.5) * randomXRange, y: moveY, opacity: 0, duration: 1.1 * scaleFactor, ease: "sine.out" });
+                };
+
+                const showFeedbackPop = (msg, color, x, y) => {
+                    const fxLayer = document.getElementById('fx-layer');
+                    const el = document.createElement('div');
+                    el.className = 'feedback-pop'; el.innerText = msg; el.style.color = color;
+                    el.style.left = `${x}px`; el.style.top = `${y}px`;
+                    fxLayer.appendChild(el);
+                    gsap.set(el, { xPercent: -50, yPercent: -50 });
+                    gsap.fromTo(el, { scale: 0, rotation: -20, opacity: 0 }, { scale: 1.3, rotation: 5, y: -90, opacity: 1, duration: 0.3, ease: "back.out(2.5)" });
+                    gsap.to(el, { opacity: 0, y: -150, duration: 0.8, delay: 0.4, ease: "power2.in", onComplete: () => el.remove() });
+                };
+
+                const triggerSplitEffect = (rect) => {
+                    const fxLayer = document.getElementById('fx-layer');
+                    const container = document.createElement('div');
+                    container.className = 'split-shard-container';
+                    container.style.left = `${rect.left}px`; container.style.top = `${rect.top}px`;
+                    container.style.transform = `rotate(${currentTarget.rotation}deg)`;
+                    fxLayer.appendChild(container);
+                    ['top', 'bottom'].forEach(pos => {
+                        const half = document.createElement('div');
+                        half.className = `shard-half shard-${pos}`;
+                        half.innerHTML = `<div class="shard-circle"></div>`;
+                        container.appendChild(half);
+                        const moveY = pos === 'top' ? -400 : 400;
+                        const scale = (gameState.value === 'finishing') ? 4 : 1;
+                        gsap.to(half, { y: moveY, x: (Math.random()-0.5)*300, rotation: (Math.random()-0.5)*450, opacity: 0, duration: 1.0 * scale, ease: "power3.out", onComplete: () => { if (pos === 'bottom') container.remove(); } });
+                    });
+                };
+
+                const triggerSlowMotionFinish = () => {
+                    if (gameState.value === 'finishing' || gameState.value === 'gameResult') return;
+                    clearInterval(timerInterval);
+                    gameState.value = 'finishing';
+                    sfx.playUlt();
+                    setTimeout(() => { gameState.value = 'gameResult'; }, 3000);
+                };
+
+                const processSlash = (dirId, x, y) => {
+                    if (gameState.value !== 'playing') return;
+                    if (dirId === currentTarget.id) {
+                        playerTotalHits.value++; combo.value++;
+                        skillPoints.value = Math.min(100, skillPoints.value + 12);
+                        const targetEl = document.getElementById('target-anchor');
+                        const rect = targetEl ? targetEl.getBoundingClientRect() : null;
+                        enemyHp.value = Math.max(0, enemyHp.value - 10);
+                        showDamagePopup(-10, false, "#ef4444");
+                        sfx.playHit();
+                        if (rect) triggerSplitEffect(rect);
+                        isSplitting.value = true;
+                        if (enemyHp.value <= 0) triggerSlowMotionFinish();
+                        else { setTimeout(() => { isSplitting.value = false; spawnTarget(); }, 80); }
+                    } else {
+                        combo.value = 0; showFeedbackPop("誤", "#ef4444", x, y);
+                        triggerImpactShake(0, 25); sfx.playHit();
+                    }
+                };
+
+                const spawnTarget = async () => {
+                    const rnd = directions[Math.floor(Math.random() * directions.length)];
+                    currentTarget.rotation = rnd.deg; currentTarget.id = rnd.id;
+                    await nextTick();
+                    gsap.fromTo("#target-anchor", { scale: 0, opacity: 0, rotation: rnd.deg + 45 }, { scale: 1, opacity: 1, rotation: rnd.deg, duration: 0.45, ease: "elastic.out(1, 0.6)" });
+                };
+
+                const runAnnouncement = async (text, duration) => {
+                    announcementText.value = text;
+                    await nextTick();
+                    const el = document.getElementById('round-announcement');
+                    if (el) gsap.fromTo(el, { scale: 0.5, opacity: 0, rotation: -8 }, { scale: 1, opacity: 1, rotation: 0, duration: 0.5, ease: "back.out(2.2)" });
+                    await new Promise(r => setTimeout(r, duration));
+                    if (el) await gsap.to(el, { scale: 1.4, opacity: 0, duration: 0.35, ease: "expo.in" });
+                    announcementText.value = '';
+                };
+
+                const startNewRound = async () => {
+                    playerDebuff.value = null; enemyDebuff.value = null; isSplitting.value = false;
+                    enemyRoundHits.value = 0;
+                    gsap.set("#cataract-mist-layer", { opacity: 0 });
+                    if (gameState.value === 'gameResult' || gameState.value === 'finishing') return;
+                    timeLeft.value = 8.0 - ((currentRound.value - 1) * 0.5);
+                    gameState.value = 'intro';
+                    await runAnnouncement(`第 ${currentRound.value} 回`, 1200);
+                    await runAnnouncement('準備', 1000);
+                    await runAnnouncement('斬！', 800);
+                    gameState.value = 'playing';
+                    spawnTarget();
+                    startTimer();
+                };
+
+                const startTimer = () => {
+                    if (timerInterval) clearInterval(timerInterval);
+                    timerInterval = setInterval(() => {
+                        if (gameState.value !== 'playing') return; 
+                        timeLeft.value -= 0.1;
+                        if (Math.random() < 0.12 && !enemyDebuff.value) {
+                            enemyRoundHits.value++;
+                            playerHp.value = Math.max(0, playerHp.value - 12);
+                            showDamagePopup(-12, true, "#ef4444");
+                            triggerImpactShake(Math.random()*360, 10);
+                            sfx.playHit();
+                            if (playerHp.value <= 0) { triggerSlowMotionFinish(); return; }
+                        }
+                        if (Math.random() < 0.015 && !enemyDebuff.value && timeLeft.value > 1.5) useEnemyUlt();
+                        if (timeLeft.value <= 0) {
+                            clearInterval(timerInterval);
+                            if (currentRound.value < 5) { currentRound.value++; startNewRound(); }
+                            else triggerSlowMotionFinish();
+                        }
+                    }, 100);
+                };
+
+                const useSkill = async (skill) => {
+                    if (skillPoints.value < skill.cost || gameState.value !== 'playing') return;
+                    skillPoints.value -= skill.cost;
+                    await playCutscene(skill.name, false);
+                    sfx.playUlt();
+                    if (skill.id === 'cataract') { 
+                        enemyDebuff.value = 'cataract'; await new Promise(r => setTimeout(r, 500));
+                        setTimeout(() => { if (enemyDebuff.value) enemyDebuff.value = null; }, 3000); 
+                    } else if (skill.id === 'dilation') { 
+                        enemyHp.value = Math.max(0, enemyHp.value - 140); showDamagePopup(-140, false, "#facc15"); 
+                        triggerImpactShake(0, 45, 0.1); sfx.playHit(); await new Promise(r => setTimeout(r, 1200)); 
+                    } else if (skill.id === 'astig') {
+                        await new Promise(resolve => {
+                            let count = 0;
+                            const interval = setInterval(() => {
+                                sfx.playSlash(); sfx.playHit();
+                                enemyHp.value = Math.max(0, enemyHp.value - 5); showDamagePopup(-5, false, "#facc15");
+                                drawSlashLine(Math.random()*window.innerWidth, Math.random()*window.innerHeight, Math.random()*window.innerWidth, Math.random()*window.innerHeight, true);
+                                triggerImpactShake(Math.random()*360, 35, 0.04);
+                                count++; if (enemyHp.value <= 0 || count >= 15) { clearInterval(interval); gsap.set("#app", { x: 0, y: 0, clearProps: "transform" }); setTimeout(resolve, 800); }
+                            }, 60);
+                        });
+                    }
+                    if (gameState.value !== 'finishing') gameState.value = 'playing';
+                    if (enemyHp.value <= 0) triggerSlowMotionFinish();
+                };
+
+                const useEnemyUlt = async () => {
+                    const skill = enemySkills[Math.floor(Math.random() * enemySkills.length)];
+                    await playCutscene(skill.name, true);
+                    sfx.playUlt();
+                    if (skill.id === 'cataract') { 
+                        playerDebuff.value = 'cataract'; gsap.to("#cataract-mist-layer", { opacity: 1, duration: 0.3 }); 
+                        setTimeout(() => { if (playerDebuff.value) { gsap.to("#cataract-mist-layer", { opacity: 0, duration: 0.5, onComplete: () => playerDebuff.value = null }); } }, 3000); 
+                        playerHp.value = Math.max(0, playerHp.value - skill.damage); showDamagePopup(-skill.damage, true, "#facc15"); sfx.playHit(); await new Promise(r => setTimeout(r, 1200)); 
+                    } else { 
+                        playerHp.value = Math.max(0, playerHp.value - skill.damage); showDamagePopup(-skill.damage, true, "#facc15"); 
+                        triggerImpactShake(0, 50, 0.12); sfx.playHit(); await new Promise(r => setTimeout(r, 1200)); 
+                    }
+                    if (gameState.value !== 'finishing') gameState.value = 'playing';
+                    if (playerHp.value <= 0) triggerSlowMotionFinish();
+                };
+
+                const playCutscene = async (skillName, isEnemy) => {
+                    gameState.value = 'skillCutscene'; isEnemyTurn.value = isEnemy;
+                    const cutscene = document.getElementById('cutscene-layer');
+                    const portrait = cutscene.querySelector('.cutscene-portrait');
+                    const nameText = cutscene.querySelector('.cutscene-skill-name');
+                    nameText.innerText = skillName;
+                    const tl = gsap.timeline();
+                    tl.to(cutscene, { opacity: 1, duration: 0.2, pointerEvents: 'auto' });
+                    tl.fromTo(portrait, { left: isEnemy ? '130%' : '-30%', opacity: 0 }, { left: isEnemy ? '50%' : '10%', opacity: 1, duration: 0.5, ease: "back.out(1.2)" });
+                    tl.fromTo(nameText, { x: isEnemy ? -300 : 300, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4 }, "-=0.3");
+                    tl.to(cutscene, { opacity: 0, duration: 0.3, delay: 1.2 });
+                    await tl;
+                };
+
+                const initGame = () => {
+                    if (timerInterval) clearInterval(timerInterval);
+                    currentRound.value = 1; playerHp.value = maxHp; enemyHp.value = maxHp;
+                    combo.value = 0; playerTotalHits.value = 0; enemyRoundHits.value = 0; skillPoints.value = 0; gameState.value = 'intro';
+                    playerDebuff.value = null; enemyDebuff.value = null; isSplitting.value = false;
+                    document.body.classList.remove('is-finishing');
+                    gsap.set("#cataract-mist-layer", { opacity: 0 });
+                    startNewRound();
+                };
+
+                return {
+                    maxHp, playerHp, enemyHp, currentRound, timeLeft, gameState, announcementText,
+                    combo, playerTotalHits, enemyRoundHits, skillPoints, playerDebuff, isSplitting, isEnemyTurn,
+                    targetTransform, currentTarget, skills, useSkill, initGame
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
