@@ -20,9 +20,13 @@ html,
 body,
 #app {
   width: 100vw;
-  height: 100vh;
+  height: 100%;
   margin: 0;
   overflow: hidden;
+}
+
+html {
+  height: -webkit-fill-available;
 }
 
 body {
@@ -39,6 +43,8 @@ button {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
   overflow: hidden;
   background: var(--bg-color);
   transition: background-color 0.8s ease;
@@ -80,8 +86,8 @@ button {
 
 #ui-layer {
   z-index: 500;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 #cutscene-layer {
@@ -217,11 +223,11 @@ button {
 }
 
 .hud-top {
-  padding-top: max(2.5rem, calc(var(--safe-top) + 1rem));
+  padding-top: max(1.25rem, calc(var(--safe-top) + 0.75rem));
 }
 
 .hud-bottom {
-  padding-bottom: max(2.5rem, calc(var(--safe-bottom) + 1rem));
+  padding-bottom: max(1.125rem, calc(var(--safe-bottom) + 0.75rem));
 }
 
 .enemy-hud-row {
@@ -233,8 +239,8 @@ button {
 }
 
 .enemy-panel {
-  width: 240px;
-  padding: 12px;
+  width: min(240px, calc(100vw - 48px));
+  padding: 10px;
   border-bottom-right-radius: 12px;
 }
 
@@ -275,7 +281,7 @@ button {
 }
 
 .hp-track-large {
-  height: 20px;
+  height: 18px;
 }
 
 .hp-fill {
@@ -298,11 +304,11 @@ button {
 }
 
 .timer-row {
-  flex: 1;
+  min-height: 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 40px;
+  padding-top: clamp(18px, 5vh, 40px);
 }
 
 #timer-display {
@@ -310,7 +316,7 @@ button {
   padding: 0 45px;
   overflow: visible;
   text-align: center;
-  font-size: 4.5rem;
+  font-size: clamp(3.5rem, 16vw, 4.5rem);
   line-height: 1;
   font-weight: 900;
   font-style: italic;
@@ -319,19 +325,20 @@ button {
 }
 
 .player-area {
+  width: 100%;
   padding-left: 20px;
   padding-right: 20px;
 }
 
 .skill-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .skill-button {
-  width: 64px;
-  height: 64px;
+  width: 58px;
+  height: 58px;
   border-radius: 12px;
   border: 4px solid transparent;
   display: flex;
@@ -361,7 +368,7 @@ button {
 }
 
 .skill-icon {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   line-height: 1;
 }
 
@@ -374,13 +381,15 @@ button {
 }
 
 .player-panel {
-  padding: 12px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px;
   border-top-right-radius: 16px;
   background: rgba(255, 255, 255, 0.95);
 }
 
 .mp-label {
-  margin-top: 4px;
+  margin-top: 3px;
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
