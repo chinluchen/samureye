@@ -50,6 +50,7 @@
           :skill-points="skillPoints"
           :skills="skills"
           :game-state="gameState"
+          :player-debuff="playerDebuff"
           @use-skill="useSkill"
         />
       </div>

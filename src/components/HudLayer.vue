@@ -29,8 +29,8 @@
           :key="skill.id"
           type="button"
           class="skill-button"
-          :class="{ 'is-ready': skillPoints >= skill.cost && gameState === 'playing' }"
-          :disabled="skillPoints < skill.cost || gameState !== 'playing'"
+          :class="{ 'is-ready': skillPoints >= skill.cost && gameState === 'playing' && playerDebuff !== 'cataract' }"
+          :disabled="skillPoints < skill.cost || gameState !== 'playing' || playerDebuff === 'cataract'"
           @touchstart.stop="$emit('use-skill', skill)"
           @click.stop="$emit('use-skill', skill)"
         >
@@ -100,6 +100,10 @@ const props = defineProps({
   gameState: {
     type: String,
     required: true
+  },
+  playerDebuff: {
+    type: String,
+    default: null
   },
   timeLeft: {
     type: Number,

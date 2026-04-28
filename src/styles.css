@@ -3,6 +3,7 @@
   --safe-top: env(safe-area-inset-top);
   --safe-bottom: env(safe-area-inset-bottom);
   --bg-color: #f5f2e9;
+  --home-safe-bg: #f9f4e3;
   --target-color: #1a1a1a;
   --ink: #1a1a1a;
   --danger: #dc2626;
@@ -27,11 +28,12 @@ body,
 
 html {
   height: -webkit-fill-available;
+  background: var(--home-safe-bg);
 }
 
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif;
-  background: var(--bg-color);
+  background: var(--home-safe-bg);
   touch-action: none;
 }
 
@@ -46,7 +48,7 @@ button {
   height: 100dvh;
   min-height: -webkit-fill-available;
   overflow: hidden;
-  background: var(--bg-color);
+  background: var(--home-safe-bg);
   transition: background-color 0.8s ease;
 }
 
@@ -583,6 +585,16 @@ button {
 #game-world-wrapper {
   position: absolute;
   inset: 0;
+  background:
+    radial-gradient(38% 36% at 14% 18%, rgba(165, 151, 140, 0.72) 0%, rgba(165, 151, 140, 0) 78%),
+    radial-gradient(32% 34% at 82% 22%, rgba(145, 161, 152, 0.74) 0%, rgba(145, 161, 152, 0) 76%),
+    radial-gradient(36% 34% at 22% 82%, rgba(167, 157, 176, 0.7) 0%, rgba(167, 157, 176, 0) 80%),
+    radial-gradient(34% 32% at 86% 78%, rgba(138, 154, 168, 0.72) 0%, rgba(138, 154, 168, 0) 78%),
+    radial-gradient(30% 24% at 50% 63%, rgba(126, 146, 165, 0.72) 0%, rgba(126, 146, 165, 0) 78%),
+    radial-gradient(28% 22% at 58% 46%, rgba(178, 154, 140, 0.64) 0%, rgba(178, 154, 140, 0) 76%),
+    radial-gradient(26% 20% at 42% 50%, rgba(151, 168, 149, 0.62) 0%, rgba(151, 168, 149, 0) 74%),
+    radial-gradient(52% 44% at 52% 54%, rgba(189, 177, 158, 0.38) 0%, rgba(189, 177, 158, 0) 82%),
+    linear-gradient(150deg, #f2eddf 0%, #e8e0d0 45%, #ded4c4 100%);
   transition: filter 1.2s ease, opacity 1.2s ease;
   will-change: filter;
 }
@@ -689,24 +701,13 @@ button {
 .c-ring-base {
   width: 160px;
   height: 160px;
-  border: 32px solid var(--target-color);
-  border-radius: 50%;
-  position: relative;
-  background: transparent;
-  transition: border-color 0.8s ease;
+  display: block;
+  transform: rotate(0deg);
 }
 
-.c-ring-base::after {
-  content: "";
-  position: absolute;
-  background: var(--bg-color);
-  width: 66px;
-  height: 38px;
-  top: 50%;
-  right: -36px;
-  transform: translateY(-50%);
-  z-index: 2;
-  transition: background-color 0.8s ease;
+.c-ring-shape {
+  fill: var(--target-color);
+  transition: fill 0.8s ease;
 }
 
 .announcement-box {
@@ -862,16 +863,16 @@ button {
 
 .player-avatar-figure {
   position: absolute;
-  left: 10px;
-  bottom: 30px;
+  left: clamp(8px, 1.4vw, 14px);
+  bottom: clamp(22px, 3.8vh, 34px);
   z-index: 1;
-  width: 210px;
-  height: 177px;
+  width: clamp(170px, 42vw, 260px);
+  height: clamp(150px, 36vw, 220px);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
   overflow: hidden;
-  font-size: 10.5rem;
+  font-size: clamp(8.8rem, 18vw, 12.5rem);
   line-height: 0.9;
   filter: drop-shadow(0 4px 0 #141414);
   pointer-events: none;
@@ -1115,10 +1116,10 @@ button {
   }
 
   .player-avatar-figure {
-    left: 14px;
-    bottom: 30px;
-    width: 246px;
-    height: 198px;
-    font-size: 12rem;
+    left: clamp(10px, 1.2vw, 16px);
+    bottom: clamp(24px, 2.6vh, 34px);
+    width: clamp(220px, 28vw, 300px);
+    height: clamp(180px, 22vw, 240px);
+    font-size: clamp(11rem, 14vw, 14rem);
   }
 }

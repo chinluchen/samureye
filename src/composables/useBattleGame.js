@@ -360,6 +360,7 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
 
   async function useSkill(skill) {
     if (isPaused.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
+    if (playerDebuff.value === 'cataract') return;
     const token = runToken.value;
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
@@ -439,7 +440,8 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
   }
 
   async function useEnemyUlt() {
-    if (isPaused.value) return;
+    if (isPaused.value || gameState.value !== 'playing') return;
+    if (enemyDebuff.value === 'cataract') return;
     const token = runToken.value;
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
