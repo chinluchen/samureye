@@ -39,7 +39,9 @@
         </button>
       </div>
 
-      <div id="player-hp-anchor" class="pixel-border player-panel">
+      <div class="player-panel-stack">
+        <div class="player-avatar-figure" aria-hidden="true">🥷</div>
+        <div id="player-hp-anchor" class="pixel-border player-panel">
         <div class="mini-row">
           <span>SAMUREYE (You)</span>
           <span class="combo-stat">COMBO: {{ combo }}</span>
@@ -53,6 +55,7 @@
         </div>
 
         <div class="mp-label">MP: {{ skillPoints }}%</div>
+        </div>
       </div>
     </div>
   </div>

@@ -6,9 +6,10 @@
     <HomeScreen
       v-if="currentScreen === 'home'"
       @start-battle="startBattle"
+      @open-study="openStudy"
     />
 
-    <template v-else>
+    <template v-else-if="currentScreen === 'battle'">
       <div id="game-world-wrapper">
         <button
           v-if="gameState !== 'gameResult'"
@@ -77,11 +78,21 @@
         @vibration-toggle="setVibrationEnabled"
       />
     </template>
+
+    <StudyTraining
+      v-else-if="currentScreen === 'study'"
+      :state="studyState"
+      @back-home="goHomeFromStudy"
+      @add-points="addStudyPoints"
+      @record-answer="recordStudyAnswer"
+      @upgrade-hp="upgradeHp"
+      @upgrade-focus="upgradeFocus"
+    />
   </main>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { GAME_CONFIG } from './data/gameConfig.js';
 import { skills } from './data/skills.js';
 import { useBattleGame } from './composables/useBattleGame.js';
@@ -92,10 +103,18 @@ import HudLayer from './components/HudLayer.vue';
 import BattleMenu from './components/BattleMenu.vue';
 import HomeScreen from './components/HomeScreen.vue';
 import ResultLayer from './components/ResultLayer.vue';
+import StudyTraining from './components/StudyTraining.vue';
 
 const currentScreen = ref('home');
 const isBattleMenuOpen = ref(false);
 const battleMenuView = ref('main');
+const studyState = reactive({
+  points: 0,
+  answered: 0,
+  correct: 0,
+  hpLevel: 0,
+  focusLevel: 0
+});
 const game = useBattleGame({ autoStart: false });
 
 const {
@@ -175,5 +194,34 @@ function returnToHome() {
   setPaused(false);
   stopGame();
   currentScreen.value = 'home';
+}
+
+function openStudy() {
+  currentScreen.value = 'study';
+}
+
+function goHomeFromStudy() {
+  currentScreen.value = 'home';
+}
+
+function addStudyPoints(points) {
+  studyState.points += points;
+}
+
+function recordStudyAnswer(correct) {
+  studyState.answered += 1;
+  if (correct) studyState.correct += 1;
+}
+
+function upgradeHp(cost) {
+  if (studyState.points < cost) return;
+  studyState.points -= cost;
+  studyState.hpLevel += 1;
+}
+
+function upgradeFocus(cost) {
+  if (studyState.points < cost) return;
+  studyState.points -= cost;
+  studyState.focusLevel += 1;
 }
 </script>

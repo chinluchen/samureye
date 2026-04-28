@@ -3,6 +3,7 @@ import { gsap } from 'gsap';
 import { GAME_CONFIG } from '../data/gameConfig.js';
 import { directions } from '../data/directions.js';
 import { enemySkills } from '../data/enemySkills.js';
+import { runEnemyUltimateEffect, runPlayerUltimateEffect } from '../game/ultimateLogic.js';
 import { sfx } from '../services/SoundEngine.js';
 import {
   drawSlashLine,
@@ -29,6 +30,8 @@ export function useBattleGame({ autoStart = true } = {}) {
   const playerDebuff = ref(null);
   const enemyDebuff = ref(null);
   const isPaused = ref(false);
+  const isSkillSequenceActive = ref(false);
+  const pendingRoundAdvance = ref(false);
   const isSplitting = ref(false);
   const isEnemyTurn = ref(false);
   const cutsceneSkillName = ref('');
@@ -78,6 +81,44 @@ export function useBattleGame({ autoStart = true } = {}) {
     return token === runToken.value;
   }
 
+  function getPlayerAvatarEl() {
+    return document.querySelector('.player-avatar-figure');
+  }
+
+  function resetPlayerAvatarPosition() {
+    const avatar = getPlayerAvatarEl();
+    if (!avatar) return;
+    gsap.set(avatar, { x: 0 });
+  }
+
+  async function animatePlayerAvatarOut(token) {
+    const avatar = getPlayerAvatarEl();
+    if (!avatar || !isRunActive(token)) return;
+
+    await new Promise(resolve => {
+      gsap.to(avatar, {
+        x: -340,
+        duration: 0.16,
+        ease: 'power2.in',
+        onComplete: resolve
+      });
+    });
+  }
+
+  async function animatePlayerAvatarBack(token) {
+    const avatar = getPlayerAvatarEl();
+    if (!avatar || !isRunActive(token)) return;
+
+    await new Promise(resolve => {
+      gsap.to(avatar, {
+        x: 0,
+        duration: 0.22,
+        ease: 'power2.out',
+        onComplete: resolve
+      });
+    });
+  }
+
   async function waitForRun(ms, token) {
     await new Promise(resolve => {
       scheduleTimeout(resolve, ms);
@@ -115,6 +156,8 @@ export function useBattleGame({ autoStart = true } = {}) {
       timerInterval = null;
     }
     gameState.value = 'finishing';
+    pendingRoundAdvance.value = false;
+    isSkillSequenceActive.value = false;
     vibrate([45, 30, 65]);
     sfx.playUlt();
 
@@ -215,6 +258,7 @@ export function useBattleGame({ autoStart = true } = {}) {
 
     playerDebuff.value = null;
     enemyDebuff.value = null;
+    pendingRoundAdvance.value = false;
     isSplitting.value = false;
     enemyRoundHits.value = 0;
     hideCataractMist();
@@ -271,57 +315,73 @@ export function useBattleGame({ autoStart = true } = {}) {
       }
 
       if (timeLeft.value <= 0) {
-        clearInterval(timerInterval);
-        asyncIntervals.delete(timerInterval);
-        timerInterval = null;
-
-        if (currentRound.value < GAME_CONFIG.totalRounds) {
-          currentRound.value++;
-          startNewRound(token);
-        } else {
-          triggerSlowMotionFinish();
-        }
+        pendingRoundAdvance.value = true;
+        resolveRoundTransitionIfNeeded(token);
       }
     }, GAME_CONFIG.tickMs);
+  }
+
+  function resolveRoundTransitionIfNeeded(token = runToken.value) {
+    if (!isRunActive(token)) return;
+    if (!pendingRoundAdvance.value) return;
+    if (isSkillSequenceActive.value) return;
+    if (gameState.value === 'finishing' || gameState.value === 'gameResult') return;
+
+    pendingRoundAdvance.value = false;
+
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      asyncIntervals.delete(timerInterval);
+      timerInterval = null;
+    }
+
+    if (currentRound.value < GAME_CONFIG.totalRounds) {
+      currentRound.value++;
+      startNewRound(token);
+    } else {
+      triggerSlowMotionFinish();
+    }
   }
 
   async function useSkill(skill) {
     if (isPaused.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
     const token = runToken.value;
+    isSkillSequenceActive.value = true;
+    if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
 
-    skillPoints.value -= skill.cost;
-    await playCutscene(skill.name, false, token);
-    if (!isRunActive(token)) return;
-    sfx.playUlt();
-
-    if (skill.id === 'cataract') {
-      enemyDebuff.value = 'cataract';
-      const alive = await waitForRun(500, token);
-      if (!alive) return;
-      scheduleTimeout(() => {
-        if (!isRunActive(token)) return;
-        if (enemyDebuff.value) {
-          enemyDebuff.value = null;
-        }
-      }, 3000);
-    }
-
-    if (skill.id === 'dilation') {
-      damageEnemy(140, '#facc15');
-      triggerImpactShake(0, 45, 0.1);
-      vibrate([18, 18, 18]);
-      sfx.playHit();
-      const alive = await waitForRun(1200, token);
-      if (!alive) return;
-    }
-
-    if (skill.id === 'astig') {
-      await runAstigmatismSlash(token);
+    try {
+      skillPoints.value -= skill.cost;
+      await animatePlayerAvatarOut(token);
       if (!isRunActive(token)) return;
-    }
 
-    if (gameState.value !== 'finishing') gameState.value = 'playing';
-    if (enemyHp.value <= 0) triggerSlowMotionFinish();
+      await playCutscene(skill.name, false, token);
+      if (!isRunActive(token)) return;
+      sfx.playUlt();
+
+      const playerUltimateAlive = await runPlayerUltimateEffect(skill, token, {
+        enemyDebuff,
+        damageEnemy,
+        triggerImpactShake,
+        vibrate,
+        sfx,
+        waitForRun,
+        scheduleTimeout,
+        isRunActive,
+        runAstigmatismSlash
+      });
+      if (!playerUltimateAlive) return;
+
+      await animatePlayerAvatarBack(token);
+      if (!isRunActive(token)) return;
+
+      if (gameState.value !== 'finishing') gameState.value = 'playing';
+      if (enemyHp.value <= 0) triggerSlowMotionFinish();
+    } finally {
+      if (isRunActive(token)) {
+        isSkillSequenceActive.value = false;
+        resolveRoundTransitionIfNeeded(token);
+      }
+    }
   }
 
   async function runAstigmatismSlash(token) {
@@ -338,13 +398,17 @@ export function useBattleGame({ autoStart = true } = {}) {
         sfx.playSlash();
         sfx.playHit();
         damageEnemy(5, '#facc15');
-        drawSlashLine(
-          Math.random() * window.innerWidth,
-          Math.random() * window.innerHeight,
-          Math.random() * window.innerWidth,
-          Math.random() * window.innerHeight,
-          { finishing: isFinishing(), muteShake: true }
-        );
+        const centerX = Math.random() * window.innerWidth;
+        const centerY = Math.random() * window.innerHeight;
+        const angle = Math.random() * Math.PI * 2;
+        const length = 180 + (Math.random() * 260);
+        const half = length / 2;
+        const x1 = centerX - (Math.cos(angle) * half);
+        const y1 = centerY - (Math.sin(angle) * half);
+        const x2 = centerX + (Math.cos(angle) * half);
+        const y2 = centerY + (Math.sin(angle) * half);
+
+        drawSlashLine(x1, y1, x2, y2, { finishing: isFinishing(), muteShake: true });
         triggerImpactShake(Math.random() * 360, 35, 0.04);
         vibrate(8);
 
@@ -362,37 +426,38 @@ export function useBattleGame({ autoStart = true } = {}) {
   async function useEnemyUlt() {
     if (isPaused.value) return;
     const token = runToken.value;
+    isSkillSequenceActive.value = true;
+    if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
 
-    const skill = enemySkills[Math.floor(Math.random() * enemySkills.length)];
+    try {
+      const skill = enemySkills[Math.floor(Math.random() * enemySkills.length)];
 
-    await playCutscene(skill.name, true, token);
-    if (!isRunActive(token)) return;
-    sfx.playUlt();
+      await playCutscene(skill.name, true, token);
+      if (!isRunActive(token)) return;
+      sfx.playUlt();
 
-    if (skill.id === 'cataract') {
-      playerDebuff.value = 'cataract';
-      showCataractMist();
-      scheduleTimeout(() => {
-        if (!isRunActive(token)) return;
-        if (playerDebuff.value) {
-          fadeOutCataractMist(() => {
-            if (!isRunActive(token)) return;
-            playerDebuff.value = null;
-          });
-        }
-      }, 3000);
-    } else {
-      triggerImpactShake(0, 50, 0.12);
-      vibrate([14, 20, 14]);
+      const enemyUltimateAlive = await runEnemyUltimateEffect(skill, token, {
+        playerDebuff,
+        showCataractMist,
+        fadeOutCataractMist,
+        scheduleTimeout,
+        isRunActive,
+        triggerImpactShake,
+        vibrate,
+        damagePlayer,
+        sfx,
+        waitForRun
+      });
+      if (!enemyUltimateAlive) return;
+
+      if (gameState.value !== 'finishing') gameState.value = 'playing';
+      if (playerHp.value <= 0) triggerSlowMotionFinish();
+    } finally {
+      if (isRunActive(token)) {
+        isSkillSequenceActive.value = false;
+        resolveRoundTransitionIfNeeded(token);
+      }
     }
-
-    damagePlayer(skill.damage, '#facc15');
-    sfx.playHit();
-    const alive = await waitForRun(1200, token);
-    if (!alive) return;
-
-    if (gameState.value !== 'finishing') gameState.value = 'playing';
-    if (playerHp.value <= 0) triggerSlowMotionFinish();
   }
 
   async function playCutscene(skillName, isEnemy, token = runToken.value) {
@@ -440,11 +505,14 @@ export function useBattleGame({ autoStart = true } = {}) {
     enemyRoundHits.value = 0;
     skillPoints.value = 0;
     gameState.value = 'intro';
+    pendingRoundAdvance.value = false;
+    isSkillSequenceActive.value = false;
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
     currentTarget.rotation = 0;
     currentTarget.id = 'right';
+    resetPlayerAvatarPosition();
     hideCataractMist();
     if (bgmEnabled.value) sfx.startBgm();
     startNewRound(token);
@@ -454,9 +522,12 @@ export function useBattleGame({ autoStart = true } = {}) {
     bumpRunToken();
     isPaused.value = false;
     gameState.value = 'intro';
+    pendingRoundAdvance.value = false;
+    isSkillSequenceActive.value = false;
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    resetPlayerAvatarPosition();
     hideCataractMist();
     sfx.stopBgm();
   }

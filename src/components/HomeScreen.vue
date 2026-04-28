@@ -18,12 +18,12 @@
         <button type="button" class="home-menu-button" disabled>關卡模式</button>
         <button type="button" class="home-menu-button" disabled>玩家對戰</button>
         <button type="button" class="home-menu-button" disabled>天梯排行</button>
-        <button type="button" class="home-menu-button" disabled>讀書強化</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-study')">讀書強化</button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-defineEmits(['start-battle']);
+defineEmits(['start-battle', 'open-study']);
 </script>
