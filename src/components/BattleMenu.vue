@@ -12,7 +12,7 @@
 
       <template v-else>
         <div class="battle-setting-row">
-          <label class="battle-setting-label" for="volume-range">音量</label>
+          <label class="battle-setting-label" for="volume-range">音樂音量</label>
           <input
             id="volume-range"
             class="battle-setting-range"
@@ -22,6 +22,20 @@
             step="0.01"
             :value="volume"
             @input="$emit('volume-change', Number($event.target.value))"
+          >
+        </div>
+
+        <div class="battle-setting-row">
+          <label class="battle-setting-label" for="sfx-volume-range">音效音量</label>
+          <input
+            id="sfx-volume-range"
+            class="battle-setting-range"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            :value="sfxVolume"
+            @input="$emit('sfx-volume-change', Number($event.target.value))"
           >
         </div>
 
@@ -40,7 +54,7 @@
             :checked="bgmEnabled"
             @change="$emit('bgm-toggle', $event.target.checked)"
           >
-          <span>背景音樂</span>
+          <span>音樂開關</span>
         </label>
 
         <label class="battle-setting-toggle">
@@ -68,6 +82,10 @@ defineProps({
     type: Number,
     required: true
   },
+  sfxVolume: {
+    type: Number,
+    required: true
+  },
   sfxEnabled: {
     type: Boolean,
     required: true
@@ -89,6 +107,7 @@ defineEmits([
   'close',
   'back-main',
   'volume-change',
+  'sfx-volume-change',
   'sfx-toggle',
   'bgm-toggle',
   'vibration-toggle'

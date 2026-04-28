@@ -3,6 +3,7 @@ export class SoundEngine {
     this.ctx = null;
     this.enabled = true;
     this.masterVolume = 1;
+    this.sfxVolume = 1;
     this.bgmEnabled = false;
     this.bgmNodes = null;
   }
@@ -33,6 +34,10 @@ export class SoundEngine {
     this.refreshBgmGain();
   }
 
+  setSfxVolume(volume) {
+    this.sfxVolume = Math.max(0, Math.min(1, Number(volume)));
+  }
+
   setBgmEnabled(enabled) {
     this.bgmEnabled = Boolean(enabled);
 
@@ -46,6 +51,10 @@ export class SoundEngine {
 
   getGain(base) {
     return base * this.masterVolume;
+  }
+
+  getSfxGain(base) {
+    return base * this.masterVolume * this.sfxVolume;
   }
 
   startBgm() {
@@ -126,7 +135,7 @@ export class SoundEngine {
     filter.type = 'highpass';
     filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
     filter.frequency.exponentialRampToValueAtTime(5000, this.ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(this.getGain(0.2), this.ctx.currentTime);
+    gain.gain.setValueAtTime(this.getSfxGain(0.2), this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
 
     noise.connect(filter);
@@ -146,7 +155,7 @@ export class SoundEngine {
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(150, this.ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.2);
-    gain.gain.setValueAtTime(this.getGain(0.4), this.ctx.currentTime);
+    gain.gain.setValueAtTime(this.getSfxGain(0.4), this.ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
 
     osc.connect(gain);
@@ -166,7 +175,7 @@ export class SoundEngine {
     osc.type = 'square';
     osc.frequency.setValueAtTime(60, this.ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.6);
-    gain.gain.setValueAtTime(this.getGain(0.3), this.ctx.currentTime);
+    gain.gain.setValueAtTime(this.getSfxGain(0.3), this.ctx.currentTime);
     gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.6);
 
     osc.connect(gain);

@@ -3,15 +3,15 @@
     <div class="hud-top enemy-hud-row breathing">
       <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
         <div class="mini-row">
-          <span>Enemy: Master HOU</span>
-          <span class="enemy-stat">HITS: {{ enemyRoundHits }}</span>
+          <span>Opponent: Master HOU</span>
+          <span class="enemy-stat">HITS: {{ opponentRoundHits }}</span>
         </div>
 
         <div class="bar-row">
           <div class="hp-track hp-track-small">
-            <div class="hp-fill enemy-fill" :style="{ width: enemyHpPercent }"></div>
+            <div class="hp-fill enemy-fill" :style="{ width: opponentHpPercent }"></div>
           </div>
-          <span class="hp-number">{{ Math.max(0, Math.ceil(enemyHp)) }} / {{ maxHp }}</span>
+          <span class="hp-number">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
         </div>
       </div>
     </div>
@@ -51,7 +51,7 @@
           <div class="hp-track hp-track-large">
             <div class="hp-fill player-fill" :style="{ width: playerHpPercent }"></div>
           </div>
-          <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ maxHp }}</span>
+          <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
         </div>
 
         <div class="mp-label">MP: {{ skillPoints }}%</div>
@@ -65,7 +65,11 @@
 import { computed } from 'vue';
 
 const props = defineProps({
-  maxHp: {
+  playerMaxHp: {
+    type: Number,
+    required: true
+  },
+  opponentMaxHp: {
     type: Number,
     required: true
   },
@@ -73,11 +77,11 @@ const props = defineProps({
     type: Number,
     required: true
   },
-  enemyHp: {
+  opponentHp: {
     type: Number,
     required: true
   },
-  enemyRoundHits: {
+  opponentRoundHits: {
     type: Number,
     required: true
   },
@@ -105,6 +109,6 @@ const props = defineProps({
 
 defineEmits(['use-skill']);
 
-const enemyHpPercent = computed(() => `${props.enemyHp / props.maxHp * 100}%`);
-const playerHpPercent = computed(() => `${props.playerHp / props.maxHp * 100}%`);
+const opponentHpPercent = computed(() => `${props.opponentHp / props.opponentMaxHp * 100}%`);
+const playerHpPercent = computed(() => `${props.playerHp / props.playerMaxHp * 100}%`);
 </script>

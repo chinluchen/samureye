@@ -1,7 +1,7 @@
 <template>
   <div id="result-layer">
-    <h2 class="result-title" :class="playerHp > enemyHp ? 'win-title' : 'lose-title'">
-      {{ playerHp > enemyHp ? '勝利' : '敗北' }}
+    <h2 class="result-title" :class="playerHp > opponentHp ? 'win-title' : 'lose-title'">
+      {{ playerHp > opponentHp ? '勝利' : '敗北' }}
     </h2>
 
     <div class="result-card">
@@ -27,7 +27,7 @@ defineProps({
     type: Number,
     required: true
   },
-  enemyHp: {
+  opponentHp: {
     type: Number,
     required: true
   },

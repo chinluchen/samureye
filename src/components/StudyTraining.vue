@@ -1,17 +1,38 @@
 <template>
   <section class="study-screen">
     <header class="study-header">
-      <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
+      <button type="button" class="study-back-btn pixel-border" @click="onBackPress">
+        {{ selectedTrackKey ? '科目選單' : '返回' }}
+      </button>
       <h2 class="study-title">讀書強化</h2>
       <div class="study-points pixel-border">SP {{ state.points }}</div>
     </header>
 
-    <div class="study-layout">
+    <div v-if="!selectedTrackKey" class="study-subhome">
+      <article
+        v-for="track in studyTracks"
+        :key="track.key"
+        class="study-track-card pixel-border"
+      >
+        <p class="study-track-subject">{{ track.subjectName }}</p>
+        <h3 class="study-track-ability">{{ track.abilityName }}</h3>
+        <p class="study-track-desc">{{ track.abilityDesc }}</p>
+        <p class="study-track-level">Lv. {{ trackLevel(track.key) }}</p>
+        <button type="button" class="study-open-track-btn" @click="openTrack(track.key)">
+          進入學習
+        </button>
+      </article>
+    </div>
+
+    <div v-else class="study-layout">
       <article class="study-card pixel-border">
         <div class="study-card-top">
-          <p class="study-tag">{{ currentQuestion.category }}</p>
-          <p class="study-progress">題庫 {{ state.answered }} / {{ state.answered + 1 }}</p>
+          <p class="study-tag">{{ currentTrack.subjectName }} / {{ currentQuestion.category }}</p>
+          <p class="study-progress">
+            正答 {{ trackCorrect }} / {{ Math.max(trackAnswered, 1) }}
+          </p>
         </div>
+
         <h3 class="study-question">{{ currentQuestion.question }}</h3>
 
         <div class="study-options">
@@ -38,36 +59,21 @@
       </article>
 
       <article class="study-card pixel-border">
-        <h3 class="study-section-title">能力強化</h3>
-        <p class="study-note">目前為第一版：升級資料已保存，下一階段接入戰鬥參數。</p>
+        <h3 class="study-section-title">{{ currentTrack.abilityName }}</h3>
+        <p class="study-note">{{ currentTrack.rewardText }}</p>
 
         <div class="upgrade-item">
           <div>
-            <p class="upgrade-name">體能訓練</p>
-            <p class="upgrade-level">Lv. {{ state.hpLevel }}</p>
+            <p class="upgrade-name">{{ currentTrack.subjectName }}</p>
+            <p class="upgrade-level">Lv. {{ trackLevel(selectedTrackKey) }}</p>
           </div>
           <button
             type="button"
             class="upgrade-btn"
-            :disabled="state.points < hpUpgradeCost"
-            @click="$emit('upgrade-hp', hpUpgradeCost)"
+            :disabled="state.points < upgradeCost"
+            @click="upgradeTrack"
           >
-            升級 ({{ hpUpgradeCost }}SP)
-          </button>
-        </div>
-
-        <div class="upgrade-item">
-          <div>
-            <p class="upgrade-name">專注訓練</p>
-            <p class="upgrade-level">Lv. {{ state.focusLevel }}</p>
-          </div>
-          <button
-            type="button"
-            class="upgrade-btn"
-            :disabled="state.points < focusUpgradeCost"
-            @click="$emit('upgrade-focus', focusUpgradeCost)"
-          >
-            升級 ({{ focusUpgradeCost }}SP)
+            升級 ({{ upgradeCost }}SP)
           </button>
         </div>
       </article>
@@ -77,7 +83,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { studyQuestions } from '../data/studyQuestions.js';
+import { studyQuestionsByTrack, studyTracks } from '../data/studyQuestions.js';
 
 const props = defineProps({
   state: {
@@ -86,25 +92,78 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back-home', 'add-points', 'record-answer', 'upgrade-hp', 'upgrade-focus']);
+const emit = defineEmits(['back-home', 'add-points', 'record-answer', 'upgrade-track']);
 
-const questionIndex = ref(0);
+const selectedTrackKey = ref('');
+const questionIndexByTrack = ref({
+  optometry: 0,
+  optics: 0,
+  contactLens: 0,
+  other: 0
+});
 const selectedIndex = ref(null);
 const isAnswered = ref(false);
 const isCorrect = ref(false);
 
-const currentQuestion = computed(() => studyQuestions[questionIndex.value % studyQuestions.length]);
-const locked = computed(() => isAnswered.value);
-const hpUpgradeCost = computed(() => 25 + props.state.hpLevel * 10);
-const focusUpgradeCost = computed(() => 20 + props.state.focusLevel * 10);
+const currentTrack = computed(() => {
+  return studyTracks.find((track) => track.key === selectedTrackKey.value) ?? studyTracks[0];
+});
+const currentQuestions = computed(() => {
+  return studyQuestionsByTrack[selectedTrackKey.value] ?? [];
+});
+const currentQuestion = computed(() => {
+  const questions = currentQuestions.value;
+  if (questions.length === 0) {
+    return {
+      category: '題庫建置中',
+      question: '此科目題庫建置中。',
+      options: ['返回科目選單'],
+      answerIndex: 0,
+      explanation: '可先前往其他科目進行學習。'
+    };
+  }
+
+  const index = questionIndexByTrack.value[selectedTrackKey.value] ?? 0;
+  return questions[index % questions.length];
+});
+const locked = computed(() => isAnswered.value || currentQuestions.value.length === 0);
+const upgradeCost = computed(() => 20 + trackLevel(selectedTrackKey.value) * 10);
+const trackAnswered = computed(() => trackStats(selectedTrackKey.value).answered);
+const trackCorrect = computed(() => trackStats(selectedTrackKey.value).correct);
 const feedbackText = computed(() => {
-  if (!isAnswered.value) return '答對可獲得 Study Points，累積後可強化角色。';
+  if (!isAnswered.value) return '先答題拿 SP，再用 SP 升級科目能力。';
   if (isCorrect.value) return `答對！+10 SP。${currentQuestion.value.explanation}`;
   return `答錯。${currentQuestion.value.explanation}`;
 });
 
+function trackStats(trackKey) {
+  return props.state.tracks[trackKey] ?? { level: 0, answered: 0, correct: 0 };
+}
+
+function trackLevel(trackKey) {
+  return trackStats(trackKey).level;
+}
+
+function openTrack(trackKey) {
+  selectedTrackKey.value = trackKey;
+  selectedIndex.value = null;
+  isAnswered.value = false;
+  isCorrect.value = false;
+}
+
+function onBackPress() {
+  if (selectedTrackKey.value) {
+    selectedTrackKey.value = '';
+    selectedIndex.value = null;
+    isAnswered.value = false;
+    isCorrect.value = false;
+    return;
+  }
+  emit('back-home');
+}
+
 function answerQuestion(idx) {
-  if (isAnswered.value) return;
+  if (locked.value || !selectedTrackKey.value) return;
 
   selectedIndex.value = idx;
   isAnswered.value = true;
@@ -114,15 +173,27 @@ function answerQuestion(idx) {
     emit('add-points', 10);
   }
 
-  emit('record-answer', isCorrect.value);
+  emit('record-answer', {
+    trackKey: selectedTrackKey.value,
+    correct: isCorrect.value
+  });
 }
 
 function nextQuestion() {
-  if (!isAnswered.value) return;
-  questionIndex.value += 1;
+  if (!isAnswered.value || !selectedTrackKey.value) return;
+
+  questionIndexByTrack.value[selectedTrackKey.value] += 1;
   selectedIndex.value = null;
   isAnswered.value = false;
   isCorrect.value = false;
+}
+
+function upgradeTrack() {
+  if (!selectedTrackKey.value) return;
+  emit('upgrade-track', {
+    trackKey: selectedTrackKey.value,
+    cost: upgradeCost.value
+  });
 }
 
 function optionClass(idx) {

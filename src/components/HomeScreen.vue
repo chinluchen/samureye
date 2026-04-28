@@ -10,20 +10,20 @@
     </header>
 
     <div class="home-card">
-      <button type="button" class="home-start-button" @click="$emit('start-battle')">
-        進入戰鬥
+      <button type="button" class="home-start-button" disabled>
+        玩家對戰
       </button>
 
       <div class="home-menu-grid">
-        <button type="button" class="home-menu-button" disabled>關卡模式</button>
-        <button type="button" class="home-menu-button" disabled>玩家對戰</button>
-        <button type="button" class="home-menu-button" disabled>天梯排行</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('start-battle')">關卡模式</button>
         <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-study')">讀書強化</button>
+        <button type="button" class="home-menu-button" disabled>天梯排行</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-settings')">設定</button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-defineEmits(['start-battle', 'open-study']);
+defineEmits(['start-battle', 'open-study', 'open-settings']);
 </script>

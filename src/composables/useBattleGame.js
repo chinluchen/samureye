@@ -16,9 +16,11 @@ import {
   triggerSplitEffect
 } from '../utils/effects.js';
 
-export function useBattleGame({ autoStart = true } = {}) {
-  const playerHp = ref(GAME_CONFIG.maxHp);
-  const enemyHp = ref(GAME_CONFIG.maxHp);
+export function useBattleGame({ autoStart = true, getBattleProgression = null } = {}) {
+  const playerMaxHp = ref(GAME_CONFIG.maxHp);
+  const enemyMaxHp = ref(GAME_CONFIG.maxHp);
+  const playerHp = ref(playerMaxHp.value);
+  const enemyHp = ref(enemyMaxHp.value);
   const currentRound = ref(1);
   const timeLeft = ref(GAME_CONFIG.firstRoundSeconds);
   const gameState = ref('intro');
@@ -36,11 +38,24 @@ export function useBattleGame({ autoStart = true } = {}) {
   const isEnemyTurn = ref(false);
   const cutsceneSkillName = ref('');
   const audioVolume = ref(1);
+  const sfxVolume = ref(1);
   const sfxEnabled = ref(true);
   const bgmEnabled = ref(false);
   const vibrationEnabled = ref(true);
   const currentTarget = reactive({ rotation: 0, id: 'right' });
   const targetTransform = computed(() => ({ transform: `rotate(${currentTarget.rotation}deg)` }));
+  const opponentMaxHp = enemyMaxHp;
+  const opponentHp = enemyHp;
+  const opponentRoundHits = enemyRoundHits;
+  const opponentDebuff = enemyDebuff;
+  const battleStats = reactive({
+    maxHp: GAME_CONFIG.maxHp,
+    targetHitDamage: GAME_CONFIG.targetHitDamage,
+    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
+    enemyAttackChancePerTick: GAME_CONFIG.enemyAttackChancePerTick,
+    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyUltChancePerTick: GAME_CONFIG.enemyUltChancePerTick
+  });
 
   let timerInterval = null;
   const runToken = ref(0);
@@ -182,12 +197,12 @@ export function useBattleGame({ autoStart = true } = {}) {
 
     playerTotalHits.value++;
     combo.value++;
-    skillPoints.value = Math.min(100, skillPoints.value + GAME_CONFIG.skillPointGainPerHit);
+    skillPoints.value = Math.min(100, skillPoints.value + battleStats.skillPointGainPerHit);
 
     const targetEl = document.getElementById('target-anchor');
     const rect = targetEl ? targetEl.getBoundingClientRect() : null;
 
-    damageEnemy(GAME_CONFIG.targetHitDamage);
+    damageEnemy(battleStats.targetHitDamage);
     vibrate(12);
     sfx.playHit();
 
@@ -297,9 +312,9 @@ export function useBattleGame({ autoStart = true } = {}) {
 
       timeLeft.value -= GAME_CONFIG.tickMs / 1000;
 
-      if (Math.random() < GAME_CONFIG.enemyAttackChancePerTick && !enemyDebuff.value) {
+      if (Math.random() < battleStats.enemyAttackChancePerTick && !enemyDebuff.value) {
         enemyRoundHits.value++;
-        damagePlayer(GAME_CONFIG.enemyAttackDamage);
+        damagePlayer(battleStats.enemyAttackDamage);
         triggerImpactShake(Math.random() * 360, 10);
         vibrate(16);
         sfx.playHit();
@@ -310,7 +325,7 @@ export function useBattleGame({ autoStart = true } = {}) {
         }
       }
 
-      if (Math.random() < GAME_CONFIG.enemyUltChancePerTick && !enemyDebuff.value && timeLeft.value > 1.5) {
+      if (Math.random() < battleStats.enemyUltChancePerTick && !enemyDebuff.value && timeLeft.value > 1.5) {
         useEnemyUlt();
       }
 
@@ -494,12 +509,30 @@ export function useBattleGame({ autoStart = true } = {}) {
     await timeline;
   }
 
+  function applyBattleProgression(stats = {}) {
+    const nextPlayerMaxHp = Math.max(120, Math.round(stats.maxHp ?? GAME_CONFIG.maxHp));
+    playerMaxHp.value = nextPlayerMaxHp;
+    enemyMaxHp.value = GAME_CONFIG.maxHp;
+    battleStats.maxHp = nextPlayerMaxHp;
+    battleStats.targetHitDamage = Math.max(1, Math.round(stats.targetHitDamage ?? GAME_CONFIG.targetHitDamage));
+    battleStats.skillPointGainPerHit = Math.max(1, Math.round(stats.skillPointGainPerHit ?? GAME_CONFIG.skillPointGainPerHit));
+    battleStats.enemyAttackChancePerTick = Math.max(0.01, Math.min(0.5, Number(stats.enemyAttackChancePerTick ?? GAME_CONFIG.enemyAttackChancePerTick)));
+    battleStats.enemyAttackDamage = Math.max(1, Math.round(stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
+    battleStats.enemyUltChancePerTick = Math.max(0, Math.min(0.25, Number(stats.enemyUltChancePerTick ?? GAME_CONFIG.enemyUltChancePerTick)));
+  }
+
   function initGame() {
     const token = bumpRunToken();
 
+    if (typeof getBattleProgression === 'function') {
+      applyBattleProgression(getBattleProgression());
+    } else {
+      applyBattleProgression();
+    }
+
     currentRound.value = 1;
-    playerHp.value = GAME_CONFIG.maxHp;
-    enemyHp.value = GAME_CONFIG.maxHp;
+    playerHp.value = playerMaxHp.value;
+    enemyHp.value = enemyMaxHp.value;
     combo.value = 0;
     playerTotalHits.value = 0;
     enemyRoundHits.value = 0;
@@ -542,6 +575,12 @@ export function useBattleGame({ autoStart = true } = {}) {
     sfx.setMasterVolume(normalized);
   }
 
+  function setSfxVolume(volume) {
+    const normalized = Math.max(0, Math.min(1, Number(volume)));
+    sfxVolume.value = normalized;
+    sfx.setSfxVolume(normalized);
+  }
+
   function setSfxEnabled(enabled) {
     const normalized = Boolean(enabled);
     sfxEnabled.value = normalized;
@@ -568,8 +607,12 @@ export function useBattleGame({ autoStart = true } = {}) {
   });
 
   return {
+    playerMaxHp,
+    enemyMaxHp,
+    opponentMaxHp,
     playerHp,
     enemyHp,
+    opponentHp,
     currentRound,
     timeLeft,
     gameState,
@@ -577,13 +620,16 @@ export function useBattleGame({ autoStart = true } = {}) {
     combo,
     playerTotalHits,
     enemyRoundHits,
+    opponentRoundHits,
     skillPoints,
     playerDebuff,
     enemyDebuff,
+    opponentDebuff,
     isPaused,
     isSplitting,
     isEnemyTurn,
     audioVolume,
+    sfxVolume,
     sfxEnabled,
     bgmEnabled,
     vibrationEnabled,
@@ -596,6 +642,7 @@ export function useBattleGame({ autoStart = true } = {}) {
     stopGame,
     setPaused,
     setAudioVolume,
+    setSfxVolume,
     setSfxEnabled,
     setBgmEnabled,
     setVibrationEnabled
