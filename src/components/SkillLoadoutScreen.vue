@@ -18,9 +18,12 @@
           @click="$emit('toggle-skill', skill.id)"
         >
           <span class="skill-config-icon">{{ skill.icon }}</span>
-          <span class="skill-config-name">{{ skill.name }}</span>
+          <span class="skill-config-main">
+            <span class="skill-config-name">{{ skill.name }}</span>
+            <span class="skill-config-meta">{{ skill.extraEffect }}</span>
+          </span>
           <span class="skill-config-cost">
-            {{ skill.cost }} MP / {{ skill.damage }} DMG
+            {{ skill.cost }} MP / CD {{ skill.cooldownSec ?? '-' }}s / {{ skill.damage }} DMG
           </span>
         </button>
       </div>

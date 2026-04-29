@@ -42,6 +42,14 @@ export async function runPlayerUltimateEffect(skill, token, ctx) {
     return ctx.waitForRun(1150, token);
   }
 
+  if (Number(skill.damage) > 0) {
+    ctx.damageEnemy(skill.damage, '#facc15');
+    ctx.triggerImpactShake(0, 42, 0.1);
+    ctx.vibrate([14, 16, 14]);
+    ctx.sfx.playHit();
+    return ctx.waitForRun(950, token);
+  }
+
   return true;
 }
 

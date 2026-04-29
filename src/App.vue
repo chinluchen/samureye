@@ -60,6 +60,8 @@
           :combo="combo"
           :time-left="timeLeft"
           :skill-points="skillPoints"
+          :skill-cooldowns="playerSkillCooldowns"
+          :skill-cooldown-pending="playerSkillCooldownPending"
           :skills="selectedSkills"
           :game-state="gameState"
           :player-debuff="playerDebuff"
@@ -260,7 +262,9 @@ const isAccountDialogConfirmDisabled = computed(() => {
   if (accountDialogMode.value === 'login') return (accountInputName.value || '').trim().length === 0;
   return !hasActiveAccount.value;
 });
-const selectablePlayerSkills = computed(() => skillPool.filter(skill => !skill.bossOnly));
+const selectablePlayerSkills = computed(() => {
+  return skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
+});
 const normalizedSkillPool = computed(() => {
   return selectablePlayerSkills.value.map(skill => ({
     ...skill,
@@ -323,6 +327,8 @@ const {
   playerTotalHits,
   opponentRoundHits,
   skillPoints,
+  playerSkillCooldowns,
+  playerSkillCooldownPending,
   playerDebuff,
   isPaused,
   audioVolume,

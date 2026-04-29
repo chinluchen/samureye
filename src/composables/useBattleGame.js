@@ -36,6 +36,9 @@ export function useBattleGame({
   const playerTotalHits = ref(0);
   const enemyRoundHits = ref(0);
   const skillPoints = ref(0);
+  const playerSkillCooldowns = ref({});
+  const playerSkillCooldownPending = ref({});
+  const enemySkillCooldowns = ref({});
   const playerDebuff = ref(null);
   const enemyDebuff = ref(null);
   const isPaused = ref(false);
@@ -150,6 +153,57 @@ export function useBattleGame({
 
   function isFinishing() {
     return gameState.value === 'finishing';
+  }
+
+  function getSkillCooldownSec(skill) {
+    const seconds = Number(skill?.cooldownSec ?? 0);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  }
+
+  function getCooldownLeft(cooldownRef, skillId) {
+    return Math.max(0, Number(cooldownRef.value[skillId] ?? 0));
+  }
+
+  function startCooldown(cooldownRef, skill) {
+    const seconds = getSkillCooldownSec(skill);
+    if (seconds <= 0 || !skill?.id) return;
+    cooldownRef.value = {
+      ...cooldownRef.value,
+      [skill.id]: seconds
+    };
+  }
+
+  function setPendingCooldown(pendingRef, skillId, active) {
+    if (!skillId) return;
+    if (active) {
+      pendingRef.value = {
+        ...pendingRef.value,
+        [skillId]: true
+      };
+      return;
+    }
+
+    const next = { ...pendingRef.value };
+    delete next[skillId];
+    pendingRef.value = next;
+  }
+
+  function tickCooldownMap(cooldownRef, deltaSec) {
+    const entries = Object.entries(cooldownRef.value);
+    if (!entries.length) return;
+
+    const next = {};
+    for (const [id, value] of entries) {
+      const remaining = Math.max(0, Number(value) - deltaSec);
+      if (remaining > 0.01) next[id] = remaining;
+    }
+    cooldownRef.value = next;
+  }
+
+  function tickSkillCooldowns(deltaSec) {
+    if (deltaSec <= 0) return;
+    tickCooldownMap(playerSkillCooldowns, deltaSec);
+    tickCooldownMap(enemySkillCooldowns, deltaSec);
   }
 
   function vibrate(pattern) {
@@ -331,6 +385,11 @@ export function useBattleGame({
         timerInterval = null;
         return;
       }
+
+      if (!isPaused.value && gameState.value === 'playing') {
+        tickSkillCooldowns(GAME_CONFIG.tickMs / 1000);
+      }
+
       if (gameState.value !== 'playing' || isPaused.value) return;
 
       const disableRoundTimer = typeof shouldDisableRoundTimer === 'function' ? shouldDisableRoundTimer() : false;
@@ -385,11 +444,13 @@ export function useBattleGame({
   }
 
   async function useSkill(skill) {
-    if (isPaused.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
+    if (isPaused.value || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
     if (playerDebuff.value === 'cataract') return;
+    if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return;
     const token = runToken.value;
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
+    setPendingCooldown(playerSkillCooldownPending, skill.id, true);
 
     try {
       skillPoints.value -= skill.cost;
@@ -416,10 +477,17 @@ export function useBattleGame({
       await animatePlayerAvatarBack(token);
       if (!isRunActive(token)) return;
 
-      if (gameState.value !== 'finishing') gameState.value = 'playing';
+      if (gameState.value !== 'finishing') {
+        gameState.value = 'playing';
+        setPendingCooldown(playerSkillCooldownPending, skill.id, false);
+        startCooldown(playerSkillCooldowns, skill);
+      } else {
+        setPendingCooldown(playerSkillCooldownPending, skill.id, false);
+      }
       if (enemyHp.value <= 0) triggerSlowMotionFinish();
     } finally {
       if (isRunActive(token)) {
+        setPendingCooldown(playerSkillCooldownPending, skill.id, false);
         isSkillSequenceActive.value = false;
         resolveRoundTransitionIfNeeded(token);
       }
@@ -468,14 +536,16 @@ export function useBattleGame({
   async function useEnemyUlt() {
     if (isPaused.value || gameState.value !== 'playing') return;
     if (enemyDebuff.value === 'cataract') return;
+    const pool = typeof getEnemySkillPool === 'function' ? getEnemySkillPool() : enemySkills;
+    const normalizedPool = Array.isArray(pool) && pool.length > 0 ? pool : enemySkills;
+    const availableSkills = normalizedPool.filter(skill => getCooldownLeft(enemySkillCooldowns, skill.id) <= 0);
+    if (!availableSkills.length) return;
+
     const token = runToken.value;
+    const skill = availableSkills[Math.floor(Math.random() * availableSkills.length)];
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
-
     try {
-      const pool = typeof getEnemySkillPool === 'function' ? getEnemySkillPool() : enemySkills;
-      const normalizedPool = Array.isArray(pool) && pool.length > 0 ? pool : enemySkills;
-      const skill = normalizedPool[Math.floor(Math.random() * normalizedPool.length)];
 
       await playCutscene(skill.name, true, token);
       if (!isRunActive(token)) return;
@@ -495,7 +565,10 @@ export function useBattleGame({
       });
       if (!enemyUltimateAlive) return;
 
-      if (gameState.value !== 'finishing') gameState.value = 'playing';
+      if (gameState.value !== 'finishing') {
+        gameState.value = 'playing';
+        startCooldown(enemySkillCooldowns, skill);
+      }
       if (playerHp.value <= 0) triggerSlowMotionFinish();
     } finally {
       if (isRunActive(token)) {
@@ -567,9 +640,15 @@ export function useBattleGame({
     playerTotalHits.value = 0;
     enemyRoundHits.value = 0;
     skillPoints.value = 0;
+    playerSkillCooldowns.value = {};
+    playerSkillCooldownPending.value = {};
+    enemySkillCooldowns.value = {};
     gameState.value = 'intro';
     pendingRoundAdvance.value = false;
     isSkillSequenceActive.value = false;
+    playerSkillCooldowns.value = {};
+    playerSkillCooldownPending.value = {};
+    enemySkillCooldowns.value = {};
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
@@ -587,6 +666,9 @@ export function useBattleGame({
     gameState.value = 'intro';
     pendingRoundAdvance.value = false;
     isSkillSequenceActive.value = false;
+    playerSkillCooldownPending.value = {};
+    playerSkillCooldowns.value = {};
+    enemySkillCooldowns.value = {};
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
@@ -652,6 +734,8 @@ export function useBattleGame({
     enemyRoundHits,
     opponentRoundHits,
     skillPoints,
+    playerSkillCooldowns,
+    playerSkillCooldownPending,
     playerDebuff,
     enemyDebuff,
     opponentDebuff,
