@@ -1,4 +1,4 @@
-import samuAvatarUrl from '../image/characters/samurai.png';
+import samuAvatarUrl from '../image/characters/samurai.runtime.webp';
 
 export const characters = [
   {

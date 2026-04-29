@@ -9,7 +9,7 @@
 </template>
 
 <script setup>
-import samuFrontPortraitUrl from '../image/characters/samu-q-front.png';
+import samuFrontPortraitUrl from '../image/characters/samu-q-front.runtime.webp';
 
 defineProps({
   isEnemyTurn: {
