@@ -81,7 +81,9 @@
         v-if="gameState === 'gameResult'"
         :player-hp="playerHp"
         :opponent-hp="opponentHp"
-        @restart="initGame"
+        @play-again="initGame"
+        @open-stage-select="goStageSelectFromResult"
+        @go-home="returnToHome"
       />
 
       <BattleMenu
@@ -238,6 +240,7 @@ const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
 const PLAYER_TEST_ACCOUNT_KEY = 'player';
+const ADMIN_TEST_ACCOUNT_KEY = 'samureye';
 const stageList = stageConfigs;
 const accountState = reactive({
   name: ''
@@ -248,6 +251,9 @@ const accountInputName = ref('');
 const selectedStageId = ref(STAGE_IDS.STAGE_02);
 const isPlayerTestAccount = computed(() => {
   return (accountState.name || '').trim().toLowerCase() === PLAYER_TEST_ACCOUNT_KEY;
+});
+const isAdminTestAccount = computed(() => {
+  return (accountState.name || '').trim().toLowerCase() === ADMIN_TEST_ACCOUNT_KEY;
 });
 const hasActiveAccount = computed(() => (accountState.name || '').trim().length > 0);
 const isAccountDialogConfirmDisabled = computed(() => {
@@ -353,7 +359,7 @@ const isTutorialGuideActive = computed(() => {
 });
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
-  if (!isPlayerTestAccount.value) return stageList.map(stage => stage.id);
+  if (isAdminTestAccount.value) return stageList.map(stage => stage.id);
 
   const unlocked = new Set(stageList.filter(stage => stage.unlockByDefault).map(stage => stage.id));
   const cleared = clearedStageSet.value;
@@ -866,6 +872,15 @@ function openStageSelect() {
 
 function goHomeFromStageSelect() {
   currentScreen.value = 'home';
+}
+
+function goStageSelectFromResult() {
+  resetTutorialState();
+  isBattleMenuOpen.value = false;
+  battleMenuView.value = 'main';
+  setPaused(false);
+  stopGame();
+  currentScreen.value = 'stageSelect';
 }
 
 function selectStageAndStart(stageId) {

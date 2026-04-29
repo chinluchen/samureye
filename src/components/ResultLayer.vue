@@ -4,9 +4,17 @@
       {{ playerHp > opponentHp ? '勝利' : '敗北' }}
     </h2>
 
-    <button type="button" class="restart-button" @click="$emit('restart')">
-      再挑戰
-    </button>
+    <div class="result-action-grid">
+      <button type="button" class="restart-button" @click="$emit('play-again')">
+        再次遊玩
+      </button>
+      <button type="button" class="restart-button result-sub-button" @click="$emit('open-stage-select')">
+        關卡選單
+      </button>
+      <button type="button" class="restart-button result-sub-button" @click="$emit('go-home')">
+        回主選單
+      </button>
+    </div>
   </div>
 </template>
 
@@ -22,5 +30,5 @@ defineProps({
   }
 });
 
-defineEmits(['restart']);
+defineEmits(['play-again', 'open-stage-select', 'go-home']);
 </script>
