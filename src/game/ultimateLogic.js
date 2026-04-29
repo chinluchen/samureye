@@ -26,6 +26,22 @@ export async function runPlayerUltimateEffect(skill, token, ctx) {
     return ctx.isRunActive(token);
   }
 
+  if (skill.id === 'glaucoma') {
+    ctx.damageEnemy(95, '#86efac');
+    ctx.triggerImpactShake(0, 52, 0.12);
+    ctx.vibrate([16, 24, 16]);
+    ctx.sfx.playHit();
+    return ctx.waitForRun(1000, token);
+  }
+
+  if (skill.id === 'macular') {
+    ctx.damageEnemy(130, '#fca5a5');
+    ctx.triggerImpactShake(0, 58, 0.12);
+    ctx.vibrate([20, 24, 20]);
+    ctx.sfx.playHit();
+    return ctx.waitForRun(1150, token);
+  }
+
   return true;
 }
 

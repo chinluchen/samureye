@@ -13,13 +13,19 @@
         v-for="track in studyTracks"
         :key="track.key"
         class="study-track-card pixel-border"
+        :class="{ 'study-track-locked': !isTrackUnlocked(track.key) }"
       >
         <p class="study-track-subject">{{ track.subjectName }}</p>
         <h3 class="study-track-ability">{{ track.abilityName }}</h3>
         <p class="study-track-desc">{{ track.abilityDesc }}</p>
         <p class="study-track-level">Lv. {{ trackLevel(track.key) }}</p>
-        <button type="button" class="study-open-track-btn" @click="openTrack(track.key)">
-          進入學習
+        <button
+          type="button"
+          class="study-open-track-btn"
+          :disabled="!isTrackUnlocked(track.key)"
+          @click="openTrack(track.key)"
+        >
+          {{ isTrackUnlocked(track.key) ? '進入學習' : '未解鎖' }}
         </button>
       </article>
     </div>
@@ -82,19 +88,24 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { studyQuestionsByTrack, studyTracks } from '../data/studyQuestions.js';
 
 const props = defineProps({
   state: {
     type: Object,
     required: true
+  },
+  unlockedTrackKeys: {
+    type: Array,
+    default: () => ['optometry', 'optics', 'contactLens', 'other']
   }
 });
 
 const emit = defineEmits(['back-home', 'add-points', 'record-answer', 'upgrade-track']);
 
 const selectedTrackKey = ref('');
+const unlockedTrackSet = computed(() => new Set(props.unlockedTrackKeys));
 const questionIndexByTrack = ref({
   optometry: 0,
   optics: 0,
@@ -145,6 +156,7 @@ function trackLevel(trackKey) {
 }
 
 function openTrack(trackKey) {
+  if (!isTrackUnlocked(trackKey)) return;
   selectedTrackKey.value = trackKey;
   selectedIndex.value = null;
   isAnswered.value = false;
@@ -190,10 +202,15 @@ function nextQuestion() {
 
 function upgradeTrack() {
   if (!selectedTrackKey.value) return;
+  if (!isTrackUnlocked(selectedTrackKey.value)) return;
   emit('upgrade-track', {
     trackKey: selectedTrackKey.value,
     cost: upgradeCost.value
   });
+}
+
+function isTrackUnlocked(trackKey) {
+  return unlockedTrackSet.value.has(trackKey);
 }
 
 function optionClass(idx) {
@@ -202,4 +219,17 @@ function optionClass(idx) {
   if (idx === selectedIndex.value) return 'wrong';
   return 'dimmed';
 }
+
+watch(
+  () => props.unlockedTrackKeys,
+  () => {
+    if (selectedTrackKey.value && !isTrackUnlocked(selectedTrackKey.value)) {
+      selectedTrackKey.value = '';
+      selectedIndex.value = null;
+      isAnswered.value = false;
+      isCorrect.value = false;
+    }
+  },
+  { deep: true }
+);
 </script>

@@ -84,5 +84,9 @@ defineEmits([
   'delete-account'
 ]);
 
-const accountLabel = computed(() => (props.accountName ? `已登入：${props.accountName}` : '未登入'));
+const accountLabel = computed(() => {
+  if (!props.accountName) return '未登入';
+  if (props.accountName.trim().toLowerCase() === 'player') return '已登入：Player（測試）';
+  return `已登入：${props.accountName}`;
+});
 </script>

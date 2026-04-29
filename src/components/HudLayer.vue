@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <div class="timer-row">
+    <div class="timer-row" :class="{ 'is-hidden': hideTimer }">
       <div id="timer-display">
         {{ timeLeft.toFixed(1) }}
       </div>
@@ -40,7 +40,9 @@
       </div>
 
       <div class="player-panel-stack">
-        <div class="player-avatar-figure" aria-hidden="true">🥷</div>
+        <div class="player-avatar-figure" aria-hidden="true">
+          <img class="player-avatar-img" :src="playerAvatarUrl" alt="">
+        </div>
         <div id="player-hp-anchor" class="pixel-border player-panel">
         <div class="mini-row">
           <span>SAMUREYE (You)</span>
@@ -65,6 +67,10 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+  playerAvatarUrl: {
+    type: String,
+    required: true
+  },
   playerMaxHp: {
     type: Number,
     required: true
@@ -108,6 +114,10 @@ const props = defineProps({
   timeLeft: {
     type: Number,
     default: 0
+  },
+  hideTimer: {
+    type: Boolean,
+    default: false
   }
 });
 

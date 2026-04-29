@@ -16,7 +16,14 @@ import {
   triggerSplitEffect
 } from '../utils/effects.js';
 
-export function useBattleGame({ autoStart = true, getBattleProgression = null } = {}) {
+export function useBattleGame({
+  autoStart = true,
+  getBattleProgression = null,
+  getEnemySkillPool = null,
+  shouldSkipRoundIntro = null,
+  getForcedTargetId = null,
+  shouldDisableRoundTimer = null
+} = {}) {
   const playerMaxHp = ref(GAME_CONFIG.maxHp);
   const enemyMaxHp = ref(GAME_CONFIG.maxHp);
   const playerHp = ref(playerMaxHp.value);
@@ -227,7 +234,11 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
   async function spawnTarget(token = runToken.value) {
     if (!isRunActive(token)) return;
 
-    const rnd = directions[Math.floor(Math.random() * directions.length)];
+    const forcedTargetId = typeof getForcedTargetId === 'function' ? getForcedTargetId() : null;
+    const forcedTarget = forcedTargetId
+      ? directions.find(direction => direction.id === forcedTargetId)
+      : null;
+    const rnd = forcedTarget ?? directions[Math.floor(Math.random() * directions.length)];
     currentTarget.rotation = rnd.deg;
     currentTarget.id = rnd.id;
 
@@ -280,8 +291,20 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
 
     if (!isRunActive(token) || gameState.value === 'gameResult' || gameState.value === 'finishing') return;
 
-    timeLeft.value = GAME_CONFIG.firstRoundSeconds - ((currentRound.value - 1) * GAME_CONFIG.secondsLostPerRound);
+    const disableRoundTimer = typeof shouldDisableRoundTimer === 'function' ? shouldDisableRoundTimer() : false;
+    timeLeft.value = disableRoundTimer
+      ? 0
+      : (GAME_CONFIG.firstRoundSeconds - ((currentRound.value - 1) * GAME_CONFIG.secondsLostPerRound));
     gameState.value = 'intro';
+    const skipRoundIntro = typeof shouldSkipRoundIntro === 'function' ? shouldSkipRoundIntro() : false;
+
+    if (skipRoundIntro) {
+      announcementText.value = '';
+      gameState.value = 'playing';
+      await spawnTarget(token);
+      startTimer(token);
+      return;
+    }
 
     const phase1 = await runAnnouncement(`第 ${currentRound.value} 回`, 1200, token);
     if (!phase1) return;
@@ -310,7 +333,10 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
       }
       if (gameState.value !== 'playing' || isPaused.value) return;
 
-      timeLeft.value -= GAME_CONFIG.tickMs / 1000;
+      const disableRoundTimer = typeof shouldDisableRoundTimer === 'function' ? shouldDisableRoundTimer() : false;
+      if (!disableRoundTimer) {
+        timeLeft.value -= GAME_CONFIG.tickMs / 1000;
+      }
 
       if (Math.random() < battleStats.enemyAttackChancePerTick && !enemyDebuff.value) {
         enemyRoundHits.value++;
@@ -329,7 +355,7 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
         useEnemyUlt();
       }
 
-      if (timeLeft.value <= 0) {
+      if (!disableRoundTimer && timeLeft.value <= 0) {
         pendingRoundAdvance.value = true;
         resolveRoundTransitionIfNeeded(token);
       }
@@ -447,7 +473,9 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
 
     try {
-      const skill = enemySkills[Math.floor(Math.random() * enemySkills.length)];
+      const pool = typeof getEnemySkillPool === 'function' ? getEnemySkillPool() : enemySkills;
+      const normalizedPool = Array.isArray(pool) && pool.length > 0 ? pool : enemySkills;
+      const skill = normalizedPool[Math.floor(Math.random() * normalizedPool.length)];
 
       await playCutscene(skill.name, true, token);
       if (!isRunActive(token)) return;
@@ -518,7 +546,7 @@ export function useBattleGame({ autoStart = true, getBattleProgression = null } 
     battleStats.maxHp = nextPlayerMaxHp;
     battleStats.targetHitDamage = Math.max(1, Math.round(stats.targetHitDamage ?? GAME_CONFIG.targetHitDamage));
     battleStats.skillPointGainPerHit = Math.max(1, Math.round(stats.skillPointGainPerHit ?? GAME_CONFIG.skillPointGainPerHit));
-    battleStats.enemyAttackChancePerTick = Math.max(0.01, Math.min(0.5, Number(stats.enemyAttackChancePerTick ?? GAME_CONFIG.enemyAttackChancePerTick)));
+    battleStats.enemyAttackChancePerTick = Math.max(0, Math.min(0.5, Number(stats.enemyAttackChancePerTick ?? GAME_CONFIG.enemyAttackChancePerTick)));
     battleStats.enemyAttackDamage = Math.max(1, Math.round(stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
     battleStats.enemyUltChancePerTick = Math.max(0, Math.min(0.25, Number(stats.enemyUltChancePerTick ?? GAME_CONFIG.enemyUltChancePerTick)));
   }
