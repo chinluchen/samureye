@@ -3,11 +3,14 @@
 ## Folders
 - BGM files: `src/assets/audio/bgm/`
 - SFX files: `src/assets/audio/sfx/`
+- Source masters: `assets/source/audio/`
 
 ## Routing
 - Scene to BGM scene mapping: `src/data/audioCatalog.js` -> `SCREEN_BGM_SCENE`
 - BGM synth presets by scene: `src/data/audioCatalog.js` -> `BGM_SCENE_PRESETS`
+- Scene to BGM file sample mapping: `src/data/audioCatalog.js` -> `BGM_SCENE_TRACK_SAMPLE`
 - Skill to SFX profile mapping: `src/data/audioCatalog.js` -> `SKILL_SFX_PROFILE`
+- Battle routing rule: `src/App.vue` -> `resolveBgmSceneId(screen)` (normal battle vs boss battle)
 
 ## Runtime Integration
 - App screen changes call `sfx.setBgmScene(sceneId)` in `src/App.vue`.

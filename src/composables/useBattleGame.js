@@ -50,7 +50,7 @@ export function useBattleGame({
   const audioVolume = ref(1);
   const sfxVolume = ref(1);
   const sfxEnabled = ref(true);
-  const bgmEnabled = ref(false);
+  const bgmEnabled = ref(true);
   const vibrationEnabled = ref(true);
   const currentTarget = reactive({ rotation: 0, id: 'right' });
   const targetTransform = computed(() => ({ transform: `rotate(${currentTarget.rotation}deg)` }));

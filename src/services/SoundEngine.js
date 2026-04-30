@@ -1,5 +1,15 @@
-import { BGM_SCENE_PRESETS, SKILL_SFX_PROFILE } from '../data/audioCatalog.js';
+import {
+  BGM_SCENE_PRESETS,
+  BGM_SCENE_TRACK_SAMPLE,
+  BGM_SAMPLE_PLAYBACK,
+  SKILL_SFX_PROFILE
+} from '../data/audioCatalog.js';
 import slashSfxUrl from '../assets/audio/sfx/sound_slash.wav';
+import homeBgmUrl from '../assets/audio/bgm/music_mainMenu.m4a';
+import battleBgmUrl from '../assets/audio/bgm/music_battle.m4a';
+import battleBossBgmUrl from '../assets/audio/bgm/music_battleWithBoss.m4a';
+import studyBgmUrl from '../assets/audio/bgm/music_researchPage.m4a';
+import characterSelectBgmUrl from '../assets/audio/bgm/music_ClothSelect.m4a';
 
 export class SoundEngine {
   constructor() {
@@ -13,8 +23,25 @@ export class SoundEngine {
     this.sampleBuffers = {};
     this.sampleLoaders = {};
     this.sampleUrls = {
-      slash: slashSfxUrl
+      slash: slashSfxUrl,
+      bgm_home_mainmenu: homeBgmUrl,
+      bgm_battle_normal: battleBgmUrl,
+      bgm_battle_boss: battleBossBgmUrl,
+      bgm_study_research: studyBgmUrl,
+      bgm_character_select: characterSelectBgmUrl
     };
+  }
+
+  isContextRunning() {
+    return this.ctx?.state === 'running';
+  }
+
+  handleContextResumed() {
+    if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
+    if (this.bgmNodes) {
+      this.stopBgm();
+    }
+    this.startBgm();
   }
 
   init() {
@@ -23,14 +50,24 @@ export class SoundEngine {
     }
 
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume()
+        .then(() => {
+          if (this.ctx?.state === 'running') {
+            this.handleContextResumed();
+          }
+        })
+        .catch(() => {
+          // iOS autoplay policy may block resume until gesture.
+        });
     }
 
     this.preloadSamples();
   }
 
   preloadSamples() {
-    void this.loadSample('slash');
+    Object.keys(this.sampleUrls).forEach((sampleId) => {
+      void this.loadSample(sampleId);
+    });
   }
 
   async loadSample(sampleId) {
@@ -48,6 +85,16 @@ export class SoundEngine {
       .then(arrayBuffer => this.ctx.decodeAudioData(arrayBuffer.slice(0)))
       .then(decoded => {
         this.sampleBuffers[sampleId] = decoded;
+        const sceneSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
+        if (
+          this.bgmEnabled
+          && this.enabled
+          && this.masterVolume > 0
+          && sceneSampleId === sampleId
+          && !this.bgmNodes
+        ) {
+          this.startBgm();
+        }
         return decoded;
       })
       .catch(() => null)
@@ -110,9 +157,23 @@ export class SoundEngine {
     this.stopBgm();
   }
 
+  hasActiveBgm() {
+    return Boolean(this.bgmNodes);
+  }
+
+  ensureBgmRunning() {
+    if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
+    this.startBgm();
+  }
+
   setBgmScene(sceneId) {
     const nextScene = sceneId && BGM_SCENE_PRESETS[sceneId] ? sceneId : 'home';
-    if (nextScene === this.bgmScene) return;
+    if (nextScene === this.bgmScene) {
+      if (this.bgmEnabled && this.enabled && this.masterVolume > 0 && !this.bgmNodes) {
+        this.startBgm();
+      }
+      return;
+    }
     this.bgmScene = nextScene;
 
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
@@ -140,6 +201,49 @@ export class SoundEngine {
     if (this.bgmNodes) return;
 
     const preset = BGM_SCENE_PRESETS[this.bgmScene] ?? BGM_SCENE_PRESETS.home;
+    const bgmSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
+    if (bgmSampleId) {
+      const sample = this.sampleBuffers[bgmSampleId];
+      if (sample) {
+        const playbackConfig = BGM_SAMPLE_PLAYBACK[bgmSampleId] ?? {};
+        const rawStartOffset = Number(playbackConfig.startOffset);
+        const hasStartOffset = Number.isFinite(rawStartOffset) && rawStartOffset > 0;
+        const startOffset = hasStartOffset
+          ? Math.max(0, Math.min(rawStartOffset, Math.max(0, sample.duration - 0.01)))
+          : 0;
+        const rawLoopStart = Number(playbackConfig.loopStart);
+        const hasLoopStart = Number.isFinite(rawLoopStart) && rawLoopStart >= 0;
+        const loopStart = hasLoopStart
+          ? Math.max(0, Math.min(rawLoopStart, Math.max(0, sample.duration - 0.01)))
+          : startOffset;
+        const rawLoopEnd = Number(playbackConfig.loopEnd);
+        const hasLoopEnd = Number.isFinite(rawLoopEnd) && rawLoopEnd > loopStart;
+        const loopEnd = hasLoopEnd
+          ? Math.max(loopStart, Math.min(rawLoopEnd, sample.duration))
+          : null;
+
+        const source = this.ctx.createBufferSource();
+        const master = this.ctx.createGain();
+        source.buffer = sample;
+        source.loop = true;
+        source.loopStart = loopStart;
+        if (loopEnd !== null) source.loopEnd = loopEnd;
+        master.gain.setValueAtTime(this.getGain(preset.masterGain), this.ctx.currentTime);
+        source.connect(master);
+        master.connect(this.ctx.destination);
+        source.start(0, startOffset);
+        this.bgmNodes = {
+          kind: 'sample',
+          source,
+          master,
+          preset
+        };
+        return;
+      }
+
+      void this.loadSample(bgmSampleId);
+      return;
+    }
 
     const oscA = this.ctx.createOscillator();
     const oscB = this.ctx.createOscillator();
@@ -165,19 +269,23 @@ export class SoundEngine {
     oscA.start();
     oscB.start();
 
-    this.bgmNodes = { oscA, oscB, master };
+    this.bgmNodes = { kind: 'synth', oscA, oscB, master, preset };
   }
 
   stopBgm() {
     if (!this.bgmNodes || !this.ctx) return;
 
-    const { oscA, oscB, master } = this.bgmNodes;
+    const { kind, master } = this.bgmNodes;
 
     try {
       master.gain.cancelScheduledValues(this.ctx.currentTime);
       master.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.08);
-      oscA.stop(this.ctx.currentTime + 0.2);
-      oscB.stop(this.ctx.currentTime + 0.2);
+      if (kind === 'sample' && this.bgmNodes.source) {
+        this.bgmNodes.source.stop(this.ctx.currentTime + 0.2);
+      } else if (kind === 'synth') {
+        this.bgmNodes.oscA.stop(this.ctx.currentTime + 0.2);
+        this.bgmNodes.oscB.stop(this.ctx.currentTime + 0.2);
+      }
     } catch {
       // Ignore repeated stop calls.
     }
@@ -188,7 +296,7 @@ export class SoundEngine {
   refreshBgmGain() {
     if (!this.bgmNodes || !this.ctx) return;
 
-    const preset = BGM_SCENE_PRESETS[this.bgmScene] ?? BGM_SCENE_PRESETS.home;
+    const preset = this.bgmNodes.preset ?? BGM_SCENE_PRESETS[this.bgmScene] ?? BGM_SCENE_PRESETS.home;
     const next = this.bgmEnabled && this.enabled ? this.getGain(preset.masterGain) : 0;
     this.bgmNodes.master.gain.setValueAtTime(next, this.ctx.currentTime);
   }

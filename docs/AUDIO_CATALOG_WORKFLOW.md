@@ -4,12 +4,15 @@
 - `docs/audio_catalog.xlsx`
 
 ## How we use it
-1. Put new audio files into:
-   - `src/assets/audio/bgm/` for music
-   - `src/assets/audio/sfx/` for sound effects
+1. Put original source files into:
+   - `assets/source/audio/bgm/` for music source
+   - `assets/source/audio/sfx/` for sfx source
 2. Tell Codex which file is for which scene/skill.
-3. Codex fills one row per audio item in `audio_catalog.xlsx`.
-4. Codex updates runtime mapping files as needed.
+3. Codex converts runtime files automatically:
+   - BGM: `m4a (AAC 128 kbps)` to `src/assets/audio/bgm/`
+   - SFX: `m4a (AAC 64-96 kbps)` to `src/assets/audio/sfx/`
+4. Codex fills one row per audio item in `audio_catalog.xlsx`.
+5. Codex updates runtime mapping files as needed.
 
 ## Required fields per row
 - `id`

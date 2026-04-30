@@ -10,7 +10,7 @@
     </header>
 
     <div class="home-card">
-      <button type="button" class="home-start-button" disabled>
+      <button type="button" class="home-start-button" @click="$emit('open-matchmaking')">
         玩家對戰
       </button>
 
@@ -19,7 +19,7 @@
         <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-study')">讀書強化</button>
         <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-character-select')">角色選擇</button>
         <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-skill-loadout')">技能配置</button>
-        <button type="button" class="home-menu-button" disabled>天梯排行</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-leaderboard')">天梯排行</button>
         <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-settings')">設定</button>
       </div>
     </div>
@@ -27,5 +27,13 @@
 </template>
 
 <script setup>
-defineEmits(['open-stage-select', 'open-study', 'open-settings', 'open-character-select', 'open-skill-loadout']);
+defineEmits([
+  'open-stage-select',
+  'open-study',
+  'open-settings',
+  'open-character-select',
+  'open-skill-loadout',
+  'open-matchmaking',
+  'open-leaderboard'
+]);
 </script>

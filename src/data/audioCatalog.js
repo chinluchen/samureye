@@ -1,11 +1,29 @@
 export const SCREEN_BGM_SCENE = {
   home: 'home',
   stageSelect: 'stageSelect',
+  matchmaking: 'stageSelect',
   battle: 'battle',
+  battleBoss: 'battleBoss',
   study: 'study',
-  settings: 'settings',
+  settings: 'home',
+  leaderboard: 'home',
   characterSelect: 'characterSelect',
-  skillLoadout: 'skillLoadout'
+  skillLoadout: 'study'
+};
+
+export const BGM_SCENE_TRACK_SAMPLE = {
+  home: 'bgm_home_mainmenu',
+  battle: 'bgm_battle_normal',
+  battleBoss: 'bgm_battle_boss',
+  study: 'bgm_study_research',
+  characterSelect: 'bgm_character_select'
+};
+
+export const BGM_SAMPLE_PLAYBACK = {
+  bgm_study_research: {
+    startOffset: 3,
+    loopStart: 3
+  }
 };
 
 export const BGM_SCENE_PRESETS = {
@@ -34,6 +52,15 @@ export const BGM_SCENE_PRESETS = {
     oscBFreq: 246.94,
     gainA: 0.06,
     gainB: 0.04,
+    masterGain: 0.35
+  },
+  battleBoss: {
+    oscAType: 'square',
+    oscBType: 'sawtooth',
+    oscAFreq: 146.83,
+    oscBFreq: 220.0,
+    gainA: 0.06,
+    gainB: 0.05,
     masterGain: 0.35
   },
   study: {

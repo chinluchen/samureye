@@ -273,6 +273,170 @@ button {
   background: #fecaca;
 }
 
+.leaderboard-screen {
+  width: 100%;
+  height: 100%;
+  padding: max(1rem, calc(var(--safe-top) + 0.6rem)) 16px max(1rem, calc(var(--safe-bottom) + 0.6rem));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 14% 12%, rgba(249, 212, 76, 0.22), transparent 30%),
+    radial-gradient(circle at 86% 80%, rgba(70, 146, 255, 0.14), transparent 30%),
+    #f4f0e3;
+}
+
+.leaderboard-card {
+  gap: 12px;
+}
+
+.leaderboard-note {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.leaderboard-placeholder-list {
+  display: grid;
+  gap: 8px;
+}
+
+.leaderboard-row {
+  border: 2px solid #111;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.leaderboard-rank {
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.leaderboard-name {
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.leaderboard-score {
+  font-size: 0.88rem;
+  font-weight: 900;
+  color: #2563eb;
+}
+
+.matchmaking-card {
+  gap: 12px;
+}
+
+.matchmaking-profile-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.matchmaking-avatar {
+  width: 44px;
+  height: 44px;
+  border: 2px solid #111;
+  border-radius: 8px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.matchmaking-profile-main {
+  display: grid;
+  gap: 2px;
+}
+
+.matchmaking-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.matchmaking-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #4b5563;
+}
+
+.matchmaking-status-box {
+  border: 2px solid #1f2937;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+  display: grid;
+  gap: 4px;
+}
+
+.matchmaking-status-label {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #6b7280;
+  font-weight: 900;
+}
+
+.matchmaking-status-text {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.matchmaking-status-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #2563eb;
+  font-weight: 800;
+}
+
+.matchmaking-status-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.matchmaking-opponent-box {
+  border: 2px solid #111;
+  border-radius: 10px;
+  background: #e0f2fe;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.matchmaking-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.matchmaking-cta-primary,
+.matchmaking-cta-cancel {
+  height: 54px;
+}
+
+.matchmaking-cta-cancel {
+  background: #fee2e2;
+}
+
+.matchmaking-cta-secondary,
+.matchmaking-cta-go {
+  min-height: 42px;
+}
+
 .character-grid {
   display: grid;
   gap: 10px;
@@ -759,6 +923,8 @@ button {
 .battle-setting-range {
   width: 100%;
   pointer-events: auto;
+  touch-action: pan-x;
+  user-select: auto;
 }
 
 .battle-setting-toggle {

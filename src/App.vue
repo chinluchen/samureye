@@ -10,6 +10,8 @@
       @open-settings="openSettings"
       @open-character-select="openCharacterSelect"
       @open-skill-loadout="openSkillLoadout"
+      @open-matchmaking="openMatchmaking"
+      @open-leaderboard="openLeaderboard"
     />
 
     <StageSelectScreen
@@ -19,6 +21,17 @@
       :unlocked-stage-ids="unlockedStageIds"
       @back-home="goHomeFromStageSelect"
       @select-stage="selectStageAndStart"
+    />
+
+    <MatchmakingScreen
+      v-else-if="currentScreen === 'matchmaking'"
+      :status="matchmakingStatus"
+      :capabilities="matchCapabilities"
+      @back-home="goHomeFromMatchmaking"
+      @sign-in="syncMatchmakingAccount"
+      @start-match="startPvPMatchmaking"
+      @cancel-match="cancelPvPMatchmaking"
+      @start-battle="startMatchedBattlePreview"
     />
 
     <template v-else-if="currentScreen === 'battle'">
@@ -138,6 +151,11 @@
       @delete-account="deleteAccount"
     />
 
+    <LeaderboardScreen
+      v-else-if="currentScreen === 'leaderboard'"
+      @back-home="goHomeFromLeaderboard"
+    />
+
     <CharacterSelectScreen
       v-else-if="currentScreen === 'characterSelect'"
       :characters="characters"
@@ -201,7 +219,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { GAME_CONFIG } from './data/gameConfig.js';
 import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
@@ -210,22 +228,49 @@ import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
 import { useBattleGame } from './composables/useBattleGame.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
 import { sfx } from './services/SoundEngine.js';
+import { createMatchService } from './services/match/MatchService.js';
 import CutsceneLayer from './components/CutsceneLayer.vue';
 import GameTarget from './components/GameTarget.vue';
 import HudLayer from './components/HudLayer.vue';
 import BattleMenu from './components/BattleMenu.vue';
 import HomeScreen from './components/HomeScreen.vue';
+import MatchmakingScreen from './components/MatchmakingScreen.vue';
 import ResultLayer from './components/ResultLayer.vue';
 import SettingsScreen from './components/SettingsScreen.vue';
 import StudyTraining from './components/StudyTraining.vue';
 import CharacterSelectScreen from './components/CharacterSelectScreen.vue';
 import SkillLoadoutScreen from './components/SkillLoadoutScreen.vue';
 import StageSelectScreen from './components/StageSelectScreen.vue';
+import LeaderboardScreen from './components/LeaderboardScreen.vue';
 import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
 
 const currentScreen = ref('home');
 const isBattleMenuOpen = ref(false);
 const battleMenuView = ref('main');
+const matchService = createMatchService();
+const matchCapabilities = reactive({
+  provider: matchService.providerName,
+  platform: matchService.platform,
+  requiresNativeBridge: false,
+  supportsGameCenter: false,
+  canUseCustomDisplayName: true
+});
+const matchmakingStatus = reactive({
+  provider: matchService.providerName,
+  phase: 'idle',
+  message: '配對系統初始化中...',
+  queueSeconds: 0,
+  localProfile: {
+    id: '',
+    gameCenterId: '',
+    displayName: 'SAMUREYE',
+    avatarEmoji: '🗡️'
+  },
+  opponentProfile: null,
+  errorMessage: ''
+});
+let unsubscribeMatchStatus = null;
+let detachAudioUnlock = null;
 const studyState = reactive({
   points: 0,
   answered: 0,
@@ -776,9 +821,85 @@ function saveAccountState() {
   }
 }
 
+function getPreferredDisplayName() {
+  const name = (accountState.name || '').trim();
+  if (!name) return 'SAMUREYE';
+  return name;
+}
+
+function applyMatchStatus(nextStatus = {}) {
+  matchmakingStatus.provider = nextStatus.provider ?? matchmakingStatus.provider;
+  matchmakingStatus.phase = nextStatus.phase ?? 'idle';
+  matchmakingStatus.message = nextStatus.message ?? '';
+  matchmakingStatus.queueSeconds = Number.isFinite(Number(nextStatus.queueSeconds))
+    ? Number(nextStatus.queueSeconds)
+    : 0;
+  matchmakingStatus.localProfile = {
+    ...matchmakingStatus.localProfile,
+    ...(nextStatus.localProfile ?? {})
+  };
+  matchmakingStatus.opponentProfile = nextStatus.opponentProfile ?? null;
+  matchmakingStatus.errorMessage = nextStatus.errorMessage ?? '';
+}
+
+function resolveBgmSceneId(screen) {
+  if (screen === 'battle') {
+    return currentStageConfig.value.hasBoss
+      ? SCREEN_BGM_SCENE.battleBoss
+      : SCREEN_BGM_SCENE.battle;
+  }
+  return SCREEN_BGM_SCENE[screen] ?? 'home';
+}
+
 onMounted(() => {
   loadAccountState();
   loadStudyStateForActiveAccount();
+  const sceneId = resolveBgmSceneId(currentScreen.value);
+  sfx.setBgmScene(sceneId);
+  setBgmEnabled(bgmEnabled.value);
+  if (bgmEnabled.value) sfx.ensureBgmRunning();
+
+  matchService.init()
+    .then((capabilities) => {
+      Object.assign(matchCapabilities, capabilities ?? {});
+    })
+    .catch((error) => {
+      applyMatchStatus({
+        phase: 'error',
+        message: '配對系統初始化失敗。',
+        errorMessage: String(error?.message ?? error ?? '')
+      });
+    });
+
+  unsubscribeMatchStatus = matchService.subscribe((status) => {
+    applyMatchStatus(status);
+  });
+
+  const unlockAudio = () => {
+    sfx.init();
+    if (bgmEnabled.value) sfx.ensureBgmRunning();
+    if (sfx.isContextRunning() && sfx.hasActiveBgm() && typeof detachAudioUnlock === 'function') {
+      detachAudioUnlock();
+      detachAudioUnlock = null;
+    }
+  };
+
+  const listenerOptions = { passive: true };
+  window.addEventListener('pointerdown', unlockAudio, listenerOptions);
+  window.addEventListener('touchstart', unlockAudio, listenerOptions);
+  window.addEventListener('click', unlockAudio, listenerOptions);
+  detachAudioUnlock = () => {
+    window.removeEventListener('pointerdown', unlockAudio, listenerOptions);
+    window.removeEventListener('touchstart', unlockAudio, listenerOptions);
+    window.removeEventListener('click', unlockAudio, listenerOptions);
+  };
+});
+
+onBeforeUnmount(() => {
+  if (typeof unsubscribeMatchStatus === 'function') unsubscribeMatchStatus();
+  if (typeof detachAudioUnlock === 'function') detachAudioUnlock();
+  detachAudioUnlock = null;
+  matchService.destroy();
 });
 
 watch(
@@ -810,6 +931,7 @@ watch(
   () => {
     saveAccountState();
     loadStudyStateForActiveAccount();
+    void matchService.signIn({ displayName: getPreferredDisplayName() });
   },
   { deep: true }
 );
@@ -866,9 +988,9 @@ watch(gameState, (next, prev) => {
 });
 
 watch(
-  currentScreen,
-  (screen) => {
-    const sceneId = SCREEN_BGM_SCENE[screen] ?? 'home';
+  [currentScreen, () => currentStageConfig.value.hasBoss],
+  ([screen]) => {
+    const sceneId = resolveBgmSceneId(screen);
     sfx.setBgmScene(sceneId);
   },
   { immediate: true }
@@ -881,6 +1003,41 @@ function startBattle() {
   battleMenuView.value = 'main';
   setPaused(false);
   initGame();
+}
+
+function openMatchmaking() {
+  currentScreen.value = 'matchmaking';
+}
+
+async function syncMatchmakingAccount() {
+  await matchService.signIn({
+    displayName: getPreferredDisplayName()
+  });
+}
+
+async function startPvPMatchmaking() {
+  await matchService.startMatchmaking({
+    displayName: getPreferredDisplayName(),
+    characterId: playerConfig.characterId,
+    equippedSkillIds: buildFilledSkillIds(playerConfig.equippedSkillIds)
+  });
+}
+
+async function cancelPvPMatchmaking() {
+  await matchService.cancelMatchmaking();
+}
+
+async function goHomeFromMatchmaking() {
+  if (matchmakingStatus.phase === 'searching') {
+    await matchService.cancelMatchmaking();
+  }
+  currentScreen.value = 'home';
+}
+
+function startMatchedBattlePreview() {
+  if (matchmakingStatus.phase !== 'matched') return;
+  selectedStageId.value = STAGE_IDS.STAGE_02;
+  startBattle();
 }
 
 function openStageSelect() {
@@ -950,6 +1107,10 @@ function openSettings() {
   currentScreen.value = 'settings';
 }
 
+function openLeaderboard() {
+  currentScreen.value = 'leaderboard';
+}
+
 function openCharacterSelect() {
   currentScreen.value = 'characterSelect';
 }
@@ -964,6 +1125,11 @@ function goHomeFromStudy() {
 }
 
 function goHomeFromSettings() {
+  resetTutorialState();
+  currentScreen.value = 'home';
+}
+
+function goHomeFromLeaderboard() {
   resetTutorialState();
   currentScreen.value = 'home';
 }

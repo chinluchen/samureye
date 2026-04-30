@@ -18,6 +18,7 @@
           step="0.01"
           :value="volume"
           @input="$emit('volume-change', Number($event.target.value))"
+          @change="$emit('volume-change', Number($event.target.value))"
         >
       </div>
 
@@ -32,6 +33,7 @@
           step="0.01"
           :value="sfxVolume"
           @input="$emit('sfx-volume-change', Number($event.target.value))"
+          @change="$emit('sfx-volume-change', Number($event.target.value))"
         >
       </div>
 
