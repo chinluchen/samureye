@@ -177,6 +177,12 @@ button {
   background: #fff;
   color: #141414;
   box-shadow: 3px 3px 0 #000;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.home-menu-button-active:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
 }
 
 .study-screen {
@@ -1654,6 +1660,42 @@ button {
 
 .restart-button:active {
   transform: scale(0.95);
+}
+
+/* Press feedback for interactive buttons that previously had no tactile response */
+.study-back-btn,
+.stage-select-card,
+.character-card,
+.skill-config-card,
+.study-open-track-btn,
+.study-option-btn,
+.study-next-btn,
+.upgrade-btn,
+.battle-menu-trigger,
+.tutorial-guide-next {
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.study-back-btn:active:not(:disabled),
+.stage-select-card:active:not(:disabled),
+.character-card:active:not(:disabled),
+.skill-config-card:active:not(:disabled),
+.study-open-track-btn:active:not(:disabled),
+.study-option-btn:active:not(:disabled),
+.study-next-btn:active:not(:disabled),
+.upgrade-btn:active:not(:disabled),
+.battle-menu-trigger:active:not(:disabled),
+.tutorial-guide-next:active:not(:disabled) {
+  transform: translate(3px, 3px);
+}
+
+.study-back-btn:active:not(:disabled),
+.stage-select-card:active:not(:disabled),
+.study-open-track-btn:active:not(:disabled),
+.study-next-btn:active:not(:disabled),
+.battle-menu-trigger:active:not(:disabled),
+.tutorial-guide-next:active:not(:disabled) {
+  box-shadow: none;
 }
 
 @media (min-width: 768px) {

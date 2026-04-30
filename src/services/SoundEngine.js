@@ -10,6 +10,7 @@ import battleBgmUrl from '../assets/audio/bgm/music_battle.m4a';
 import battleBossBgmUrl from '../assets/audio/bgm/music_battleWithBoss.m4a';
 import studyBgmUrl from '../assets/audio/bgm/music_researchPage.m4a';
 import characterSelectBgmUrl from '../assets/audio/bgm/music_ClothSelect.m4a';
+import stageBgmUrl from '../assets/audio/bgm/music_stage.m4a';
 
 export class SoundEngine {
   constructor() {
@@ -25,6 +26,7 @@ export class SoundEngine {
     this.sampleUrls = {
       slash: slashSfxUrl,
       bgm_home_mainmenu: homeBgmUrl,
+      bgm_stage_select: stageBgmUrl,
       bgm_battle_normal: battleBgmUrl,
       bgm_battle_boss: battleBossBgmUrl,
       bgm_study_research: studyBgmUrl,

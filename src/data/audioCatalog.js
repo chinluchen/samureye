@@ -13,6 +13,7 @@ export const SCREEN_BGM_SCENE = {
 
 export const BGM_SCENE_TRACK_SAMPLE = {
   home: 'bgm_home_mainmenu',
+  stageSelect: 'bgm_stage_select',
   battle: 'bgm_battle_normal',
   battleBoss: 'bgm_battle_boss',
   study: 'bgm_study_research',
