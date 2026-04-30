@@ -459,7 +459,7 @@ export function useBattleGame({
 
       await playCutscene(skill.name, false, token);
       if (!isRunActive(token)) return;
-      sfx.playUlt();
+      sfx.playSkillCast(skill);
 
       const playerUltimateAlive = await runPlayerUltimateEffect(skill, token, {
         enemyDebuff,
@@ -549,7 +549,7 @@ export function useBattleGame({
 
       await playCutscene(skill.name, true, token);
       if (!isRunActive(token)) return;
-      sfx.playUlt();
+      sfx.playSkillCast(skill);
 
       const enemyUltimateAlive = await runEnemyUltimateEffect(skill, token, {
         playerDebuff,

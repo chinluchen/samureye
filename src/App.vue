@@ -203,11 +203,13 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { GAME_CONFIG } from './data/gameConfig.js';
+import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
 import { useBattleGame } from './composables/useBattleGame.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
+import { sfx } from './services/SoundEngine.js';
 import CutsceneLayer from './components/CutsceneLayer.vue';
 import GameTarget from './components/GameTarget.vue';
 import HudLayer from './components/HudLayer.vue';
@@ -862,6 +864,15 @@ watch(gameState, (next, prev) => {
   if (stageProgress.clearedStageIds.includes(selectedStageId.value)) return;
   stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, selectedStageId.value];
 });
+
+watch(
+  currentScreen,
+  (screen) => {
+    const sceneId = SCREEN_BGM_SCENE[screen] ?? 'home';
+    sfx.setBgmScene(sceneId);
+  },
+  { immediate: true }
+);
 
 function startBattle() {
   resetTutorialState();
