@@ -543,19 +543,16 @@ function advanceTutorialStep() {
   }
 
   if (tutorialState.step === 'hpEnemy') {
-    tutorialFocusRect.value = null;
     tutorialState.step = 'hpPlayer';
     return;
   }
 
   if (tutorialState.step === 'hpPlayer') {
-    tutorialFocusRect.value = null;
     tutorialState.step = 'skills';
     return;
   }
 
   if (tutorialState.step === 'skills') {
-    tutorialFocusRect.value = null;
     tutorialState.step = 'mp';
     if (!tutorialState.hasGrantedMp) {
       skillPoints.value = 100;
@@ -578,34 +575,73 @@ async function updateTutorialFocusRectFromTarget() {
     return;
   }
 
-  if (!['focus', 'gesture', 'practice'].includes(tutorialState.step)) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-
   await nextTick();
-  const targetEl = document.getElementById('target-anchor');
-  if (!targetEl) {
+  const step = tutorialState.step;
+  const anchorIdByStep = {
+    focus: 'target-anchor',
+    gesture: 'target-anchor',
+    practice: 'target-anchor',
+    hpEnemy: 'enemy-hp-anchor',
+    hpPlayer: 'player-hp-anchor',
+    skills: 'skill-bar-anchor',
+    mp: 'player-mp-anchor'
+  };
+  const anchorId = anchorIdByStep[step];
+  if (!anchorId) {
+    tutorialFocusRect.value = null;
+    return;
+  }
+  const anchorEl = document.getElementById(anchorId);
+  if (!anchorEl) {
     tutorialFocusRect.value = null;
     return;
   }
 
-  const rect = targetEl.getBoundingClientRect();
+  const rect = anchorEl.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const targetBasePx = 160;
-  const measuredSide = Math.max(rect.width, rect.height, targetBasePx);
-  const sidePx = measuredSide + 88;
-  const leftPx = centerX - (sidePx / 2);
-  const topPx = centerY - (sidePx / 2);
+  let leftPx = rect.left;
+  let topPx = rect.top;
+  let widthPx = rect.width;
+  let heightPx = rect.height;
+
+  if (['focus', 'gesture', 'practice'].includes(step)) {
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const targetBasePx = 160;
+    const measuredSide = Math.max(rect.width, rect.height, targetBasePx);
+    const sidePx = measuredSide + 88;
+    leftPx = centerX - (sidePx / 2);
+    topPx = centerY - (sidePx / 2);
+    widthPx = sidePx;
+    heightPx = sidePx;
+  } else if (step === 'hpEnemy') {
+    leftPx = rect.left - 10;
+    topPx = rect.top - 8;
+    widthPx = rect.width + 20;
+    heightPx = rect.height + 16;
+  } else if (step === 'hpPlayer') {
+    leftPx = rect.left - 10;
+    topPx = rect.top - 8;
+    widthPx = rect.width + 20;
+    heightPx = rect.height + 16;
+  } else if (step === 'skills') {
+    leftPx = rect.left - 8;
+    topPx = rect.top - 8;
+    widthPx = rect.width + 16;
+    heightPx = rect.height + 16;
+  } else if (step === 'mp') {
+    leftPx = rect.left - 8;
+    topPx = rect.top - 6;
+    widthPx = rect.width + 16;
+    heightPx = rect.height + 12;
+  }
 
   tutorialFocusRect.value = {
-    left: Math.max(2, Math.min(98, (leftPx / viewportWidth) * 100)),
-    top: Math.max(2, Math.min(98, (topPx / viewportHeight) * 100)),
-    width: Math.max(8, Math.min(96, (sidePx / viewportWidth) * 100)),
-    height: Math.max(8, Math.min(96, (sidePx / viewportHeight) * 100))
+    left: Math.max(1, Math.min(99, (leftPx / viewportWidth) * 100)),
+    top: Math.max(1, Math.min(99, (topPx / viewportHeight) * 100)),
+    width: Math.max(6, Math.min(98, (widthPx / viewportWidth) * 100)),
+    height: Math.max(6, Math.min(98, (heightPx / viewportHeight) * 100))
   };
 }
 

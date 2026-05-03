@@ -23,7 +23,7 @@
     </div>
 
     <div class="hud-bottom player-area">
-      <div class="skill-bar">
+      <div id="skill-bar-anchor" class="skill-bar">
         <button
           v-for="skill in skills"
           :key="skill.id"
@@ -39,8 +39,15 @@
             class="skill-cooldown-overlay"
             :style="getSkillCooldownStyle(skill)"
           ></span>
-          <span class="skill-icon">{{ skill.icon }}</span>
-          <span class="skill-name">{{ skill.name }}</span>
+          <span class="skill-name">
+            <span
+              v-for="(line, idx) in formatSkillNameLines(skill.name)"
+              :key="`${skill.id}-line-${idx}`"
+              class="skill-name-line"
+            >
+              {{ line }}
+            </span>
+          </span>
           <span v-if="getSkillCooldownLeft(skill.id) > 0" class="skill-cooldown-badge">
             {{ formatSkillCooldown(skill.id) }}s
           </span>
@@ -64,7 +71,7 @@
           <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
         </div>
 
-        <div class="mp-label">MP: {{ skillPoints }}%</div>
+        <div id="player-mp-anchor" class="mp-label">MP: {{ skillPoints }}%</div>
         </div>
       </div>
     </div>
@@ -194,4 +201,14 @@ function getSkillCooldownStyle(skill) {
     '--cd-stop': deg
   };
 }
+
+function formatSkillNameLines(name) {
+  const source = typeof name === 'string' ? name : '';
+  const lines = source
+    .split('．')
+    .map(part => part.trim())
+    .filter(Boolean);
+  return lines.length ? lines.slice(0, 2) : [''];
+}
+
 </script>
