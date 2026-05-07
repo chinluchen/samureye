@@ -17,8 +17,11 @@
           max="1"
           step="0.01"
           :value="volume"
-          @input="$emit('volume-change', Number($event.target.value))"
-          @change="$emit('volume-change', Number($event.target.value))"
+          @input="emitVolumeChange"
+          @change="emitVolumeChange"
+          @touchend="emitVolumeChange"
+          @pointerup="emitVolumeChange"
+          @mouseup="emitVolumeChange"
         >
       </div>
 
@@ -32,8 +35,11 @@
           max="1"
           step="0.01"
           :value="sfxVolume"
-          @input="$emit('sfx-volume-change', Number($event.target.value))"
-          @change="$emit('sfx-volume-change', Number($event.target.value))"
+          @input="emitSfxVolumeChange"
+          @change="emitSfxVolumeChange"
+          @touchend="emitSfxVolumeChange"
+          @pointerup="emitSfxVolumeChange"
+          @mouseup="emitSfxVolumeChange"
         >
       </div>
 
@@ -74,7 +80,7 @@ const props = defineProps({
   accountName: { type: String, default: '' }
 });
 
-defineEmits([
+const emit = defineEmits([
   'back-home',
   'volume-change',
   'sfx-volume-change',
@@ -85,6 +91,20 @@ defineEmits([
   'logout-account',
   'delete-account'
 ]);
+
+function normalizeRangeEventValue(event) {
+  const rawValue = Number(event?.currentTarget?.value ?? event?.target?.value);
+  if (!Number.isFinite(rawValue)) return 0;
+  return Math.max(0, Math.min(1, rawValue));
+}
+
+function emitVolumeChange(event) {
+  emit('volume-change', normalizeRangeEventValue(event));
+}
+
+function emitSfxVolumeChange(event) {
+  emit('sfx-volume-change', normalizeRangeEventValue(event));
+}
 
 const accountLabel = computed(() => {
   if (!props.accountName) return '未登入';

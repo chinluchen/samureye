@@ -271,6 +271,7 @@ const matchmakingStatus = reactive({
 });
 let unsubscribeMatchStatus = null;
 let detachAudioUnlock = null;
+let detachAppAudioLifecycle = null;
 const studyState = reactive({
   points: 0,
   answered: 0,
@@ -929,12 +930,44 @@ onMounted(() => {
     window.removeEventListener('touchstart', unlockAudio, listenerOptions);
     window.removeEventListener('click', unlockAudio, listenerOptions);
   };
+
+  const pauseAudioForBackground = () => {
+    sfx.pauseForAppBackground();
+  };
+
+  const resumeAudioFromForeground = () => {
+    if (document.hidden) return;
+    sfx.resumeFromAppForeground();
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      pauseAudioForBackground();
+      return;
+    }
+    resumeAudioFromForeground();
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', pauseAudioForBackground);
+  window.addEventListener('blur', pauseAudioForBackground);
+  window.addEventListener('pageshow', resumeAudioFromForeground);
+  window.addEventListener('focus', resumeAudioFromForeground);
+  detachAppAudioLifecycle = () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pagehide', pauseAudioForBackground);
+    window.removeEventListener('blur', pauseAudioForBackground);
+    window.removeEventListener('pageshow', resumeAudioFromForeground);
+    window.removeEventListener('focus', resumeAudioFromForeground);
+  };
 });
 
 onBeforeUnmount(() => {
   if (typeof unsubscribeMatchStatus === 'function') unsubscribeMatchStatus();
   if (typeof detachAudioUnlock === 'function') detachAudioUnlock();
+  if (typeof detachAppAudioLifecycle === 'function') detachAppAudioLifecycle();
   detachAudioUnlock = null;
+  detachAppAudioLifecycle = null;
   matchService.destroy();
 });
 

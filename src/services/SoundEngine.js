@@ -20,6 +20,7 @@ export class SoundEngine {
     this.sfxVolume = 1;
     this.bgmEnabled = false;
     this.bgmNodes = null;
+    this.bgmPausedForAppState = false;
     this.bgmScene = 'home';
     this.sampleBuffers = {};
     this.sampleLoaders = {};
@@ -40,9 +41,6 @@ export class SoundEngine {
 
   handleContextResumed() {
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
-    if (this.bgmNodes) {
-      this.stopBgm();
-    }
     this.startBgm();
   }
 
@@ -87,16 +85,6 @@ export class SoundEngine {
       .then(arrayBuffer => this.ctx.decodeAudioData(arrayBuffer.slice(0)))
       .then(decoded => {
         this.sampleBuffers[sampleId] = decoded;
-        const sceneSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
-        if (
-          this.bgmEnabled
-          && this.enabled
-          && this.masterVolume > 0
-          && sceneSampleId === sampleId
-          && !this.bgmNodes
-        ) {
-          this.startBgm();
-        }
         return decoded;
       })
       .catch(() => null)
@@ -109,7 +97,7 @@ export class SoundEngine {
   }
 
   playSample(sampleId, baseGain = 1) {
-    if (!this.enabled || this.masterVolume <= 0) return false;
+    if (!this.enabled || this.sfxVolume <= 0) return false;
     this.init();
 
     const sample = this.sampleBuffers[sampleId];
@@ -130,7 +118,7 @@ export class SoundEngine {
 
   setEnabled(enabled) {
     this.enabled = Boolean(enabled);
-    if (this.enabled && this.bgmEnabled && this.masterVolume > 0 && !this.bgmNodes) {
+    if (this.enabled && this.bgmEnabled && this.masterVolume > 0 && !this.hasActiveBgm()) {
       this.startBgm();
     }
     this.refreshBgmGain();
@@ -138,7 +126,7 @@ export class SoundEngine {
 
   setMasterVolume(volume) {
     this.masterVolume = Math.max(0, Math.min(1, Number(volume)));
-    if (this.masterVolume > 0 && this.enabled && this.bgmEnabled && !this.bgmNodes) {
+    if (this.masterVolume > 0 && this.enabled && this.bgmEnabled && !this.hasActiveBgm()) {
       this.startBgm();
     }
     this.refreshBgmGain();
@@ -171,7 +159,7 @@ export class SoundEngine {
   setBgmScene(sceneId) {
     const nextScene = sceneId && BGM_SCENE_PRESETS[sceneId] ? sceneId : 'home';
     if (nextScene === this.bgmScene) {
-      if (this.bgmEnabled && this.enabled && this.masterVolume > 0 && !this.bgmNodes) {
+      if (this.bgmEnabled && this.enabled && this.masterVolume > 0 && !this.hasActiveBgm()) {
         this.startBgm();
       }
       return;
@@ -179,7 +167,7 @@ export class SoundEngine {
     this.bgmScene = nextScene;
 
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
-    if (!this.bgmNodes) {
+    if (!this.hasActiveBgm()) {
       this.startBgm();
       return;
     }
@@ -193,59 +181,70 @@ export class SoundEngine {
   }
 
   getSfxGain(base) {
-    return base * this.masterVolume * this.sfxVolume;
+    return base * this.sfxVolume;
   }
 
   startBgm() {
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
-
-    this.init();
-    if (this.bgmNodes) return;
+    this.bgmPausedForAppState = false;
 
     const preset = BGM_SCENE_PRESETS[this.bgmScene] ?? BGM_SCENE_PRESETS.home;
     const bgmSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
     if (bgmSampleId) {
-      const sample = this.sampleBuffers[bgmSampleId];
-      if (sample) {
-        const playbackConfig = BGM_SAMPLE_PLAYBACK[bgmSampleId] ?? {};
-        const rawStartOffset = Number(playbackConfig.startOffset);
-        const hasStartOffset = Number.isFinite(rawStartOffset) && rawStartOffset > 0;
-        const startOffset = hasStartOffset
-          ? Math.max(0, Math.min(rawStartOffset, Math.max(0, sample.duration - 0.01)))
-          : 0;
-        const rawLoopStart = Number(playbackConfig.loopStart);
-        const hasLoopStart = Number.isFinite(rawLoopStart) && rawLoopStart >= 0;
-        const loopStart = hasLoopStart
-          ? Math.max(0, Math.min(rawLoopStart, Math.max(0, sample.duration - 0.01)))
-          : startOffset;
-        const rawLoopEnd = Number(playbackConfig.loopEnd);
-        const hasLoopEnd = Number.isFinite(rawLoopEnd) && rawLoopEnd > loopStart;
-        const loopEnd = hasLoopEnd
-          ? Math.max(loopStart, Math.min(rawLoopEnd, sample.duration))
-          : null;
+      this.init();
+      if (this.bgmNodes) return;
 
-        const source = this.ctx.createBufferSource();
-        const master = this.ctx.createGain();
-        source.buffer = sample;
-        source.loop = true;
-        source.loopStart = loopStart;
-        if (loopEnd !== null) source.loopEnd = loopEnd;
-        master.gain.setValueAtTime(this.getGain(preset.masterGain), this.ctx.currentTime);
-        source.connect(master);
-        master.connect(this.ctx.destination);
-        source.start(0, startOffset);
-        this.bgmNodes = {
-          kind: 'sample',
-          source,
-          master,
-          preset
-        };
+      const sample = this.sampleBuffers[bgmSampleId];
+      if (!sample) {
+        void this.loadSample(bgmSampleId).then((decoded) => {
+          if (!decoded) return;
+          if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
+          const sceneSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
+          if (sceneSampleId !== bgmSampleId) return;
+          if (this.bgmNodes) return;
+          this.startBgm();
+        });
         return;
       }
 
-      void this.loadSample(bgmSampleId);
+      const playbackConfig = BGM_SAMPLE_PLAYBACK[bgmSampleId] ?? {};
+      const rawStartOffset = Number(playbackConfig.startOffset);
+      const hasStartOffset = Number.isFinite(rawStartOffset) && rawStartOffset > 0;
+      const startOffset = hasStartOffset
+        ? Math.max(0, Math.min(rawStartOffset, Math.max(0, sample.duration - 0.01)))
+        : 0;
+      const rawLoopStart = Number(playbackConfig.loopStart);
+      const hasLoopStart = Number.isFinite(rawLoopStart) && rawLoopStart >= 0;
+      const loopStart = hasLoopStart
+        ? Math.max(0, Math.min(rawLoopStart, Math.max(0, sample.duration - 0.01)))
+        : startOffset;
+      const rawLoopEnd = Number(playbackConfig.loopEnd);
+      const hasLoopEnd = Number.isFinite(rawLoopEnd) && rawLoopEnd > loopStart;
+      const loopEnd = hasLoopEnd
+        ? Math.max(loopStart, Math.min(rawLoopEnd, sample.duration))
+        : null;
+
+      const source = this.ctx.createBufferSource();
+      const master = this.ctx.createGain();
+      source.buffer = sample;
+      source.loop = true;
+      source.loopStart = loopStart;
+      if (loopEnd !== null) source.loopEnd = loopEnd;
+      master.gain.setValueAtTime(this.getGain(preset.masterGain), this.ctx.currentTime);
+      source.connect(master);
+      master.connect(this.ctx.destination);
+      source.start(0, startOffset);
+      this.bgmNodes = {
+        kind: 'sample',
+        source,
+        master,
+        preset
+      };
       return;
     }
+
+    this.init();
+    if (this.bgmNodes) return;
 
     const oscA = this.ctx.createOscillator();
     const oscB = this.ctx.createOscillator();
@@ -275,6 +274,7 @@ export class SoundEngine {
   }
 
   stopBgm() {
+    this.bgmPausedForAppState = false;
     if (!this.bgmNodes || !this.ctx) return;
 
     const { kind, master } = this.bgmNodes;
@@ -303,6 +303,20 @@ export class SoundEngine {
     this.bgmNodes.master.gain.setValueAtTime(next, this.ctx.currentTime);
   }
 
+  pauseForAppBackground() {
+    if (this.bgmNodes) {
+      this.stopBgm();
+      this.bgmPausedForAppState = true;
+    }
+  }
+
+  resumeFromAppForeground() {
+    if (!this.bgmPausedForAppState) return;
+    this.bgmPausedForAppState = false;
+    if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
+    this.startBgm();
+  }
+
   playSlash() {
     const played = this.playSample('slash', 0.95);
     if (played) return;
@@ -310,7 +324,7 @@ export class SoundEngine {
   }
 
   playSlashSynth() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
 
     this.init();
 
@@ -340,7 +354,7 @@ export class SoundEngine {
   }
 
   playHit() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
 
     this.init();
 
@@ -360,7 +374,7 @@ export class SoundEngine {
   }
 
   playUlt() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
 
     this.init();
 
@@ -423,7 +437,7 @@ export class SoundEngine {
   }
 
   playFlash() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -440,7 +454,7 @@ export class SoundEngine {
   }
 
   playFocus() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -457,7 +471,7 @@ export class SoundEngine {
   }
 
   playShield() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -474,7 +488,7 @@ export class SoundEngine {
   }
 
   playHeavy() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -491,7 +505,7 @@ export class SoundEngine {
   }
 
   playBurst() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -508,7 +522,7 @@ export class SoundEngine {
   }
 
   playDark() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -525,7 +539,7 @@ export class SoundEngine {
   }
 
   playSplit() {
-    if (!this.enabled || this.masterVolume <= 0) return;
+    if (!this.enabled || this.sfxVolume <= 0) return;
     this.init();
 
     const oscA = this.ctx.createOscillator();

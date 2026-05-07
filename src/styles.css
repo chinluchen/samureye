@@ -47,7 +47,7 @@ html {
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif;
   background-color: var(--scene-bg-color);
-  touch-action: none;
+  touch-action: manipulation;
 }
 
 button {
@@ -956,7 +956,7 @@ button {
 .battle-setting-range {
   width: 100%;
   pointer-events: auto;
-  touch-action: pan-x;
+  touch-action: auto;
   user-select: auto;
 }
 
