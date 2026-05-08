@@ -185,6 +185,50 @@ button {
   pointer-events: auto;
 }
 
+.home-locked-button-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.home-locked-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.34);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.home-locked-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
+}
+
+.home-locked-button-wrap .home-menu-button {
+  width: 100%;
+}
+
+.home-menu-button-locked {
+  cursor: not-allowed;
+}
+
+.home-locked-button-wrap:active .home-menu-button-locked {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+.home-locked-button-wrap:active .home-locked-overlay {
+  transform: translate(3px, 3px);
+}
+
+.home-locked-overlay,
+.home-menu-button-locked {
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
 .home-menu-button-active {
   background: var(--menu-surface-strong);
   color: #141414;
@@ -852,7 +896,7 @@ button {
   position: absolute;
   top: max(0.8rem, calc(var(--safe-top) + 0.5rem));
   left: 1rem;
-  z-index: 1200;
+  z-index: 2100;
   min-width: 76px;
   height: 44px;
   padding: 0 14px;
@@ -865,7 +909,7 @@ button {
 .battle-menu-overlay {
   position: absolute;
   inset: 0;
-  z-index: 1800;
+  z-index: 2200;
   display: flex;
   align-items: center;
   justify-content: center;

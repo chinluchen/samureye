@@ -5,7 +5,7 @@
         {{ selectedTrackKey ? '科目選單' : '返回' }}
       </button>
       <h2 class="study-title">讀書強化</h2>
-      <div class="study-points pixel-border">SP {{ state.points }}</div>
+      <div class="study-points pixel-border">KP {{ state.knowledgePoints }}</div>
     </header>
 
     <div v-if="!selectedTrackKey" class="study-subhome">
@@ -76,10 +76,10 @@
           <button
             type="button"
             class="upgrade-btn"
-            :disabled="state.points < upgradeCost"
+            :disabled="state.knowledgePoints < upgradeCost"
             @click="upgradeTrack"
           >
-            升級 ({{ upgradeCost }}SP)
+            升級 ({{ upgradeCost }}KP)
           </button>
         </div>
       </article>
@@ -102,7 +102,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['back-home', 'add-points', 'record-answer', 'upgrade-track']);
+const emit = defineEmits(['back-home', 'add-knowledge-points', 'record-answer', 'upgrade-track']);
 
 const selectedTrackKey = ref('');
 const unlockedTrackSet = computed(() => new Set(props.unlockedTrackKeys));
@@ -142,8 +142,8 @@ const upgradeCost = computed(() => 20 + trackLevel(selectedTrackKey.value) * 10)
 const trackAnswered = computed(() => trackStats(selectedTrackKey.value).answered);
 const trackCorrect = computed(() => trackStats(selectedTrackKey.value).correct);
 const feedbackText = computed(() => {
-  if (!isAnswered.value) return '先答題拿 SP，再用 SP 升級科目能力。';
-  if (isCorrect.value) return `答對！+10 SP。${currentQuestion.value.explanation}`;
+  if (!isAnswered.value) return '先答題拿 KP，再用 KP 升級科目能力。';
+  if (isCorrect.value) return `答對！+10 KP。${currentQuestion.value.explanation}`;
   return `答錯。${currentQuestion.value.explanation}`;
 });
 
@@ -182,7 +182,7 @@ function answerQuestion(idx) {
   isCorrect.value = idx === currentQuestion.value.answerIndex;
 
   if (isCorrect.value) {
-    emit('add-points', 10);
+    emit('add-knowledge-points', 10);
   }
 
   emit('record-answer', {

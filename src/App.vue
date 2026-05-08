@@ -5,6 +5,7 @@
   >
     <HomeScreen
       v-if="currentScreen === 'home'"
+      :is-skill-loadout-unlocked="isSkillLoadoutUnlocked"
       @open-stage-select="openStageSelect"
       @open-study="openStudy"
       @open-settings="openSettings"
@@ -37,7 +38,7 @@
     <template v-else-if="currentScreen === 'battle'">
       <div id="game-world-wrapper">
         <button
-          v-if="gameState !== 'gameResult' && !isTutorialGuideActive"
+          v-if="gameState !== 'gameResult'"
           type="button"
           class="battle-menu-trigger pixel-border"
           @click="openBattleMenu"
@@ -83,7 +84,7 @@
         />
 
         <TutorialGuideOverlay
-          v-if="isTutorialGuideActive"
+          v-if="isTutorialGuideActive && !isBattleMenuOpen"
           :step="tutorialState.step"
           :progress-count="tutorialHitProgress"
           :required-hits="tutorialState.requiredHits"
@@ -127,7 +128,7 @@
       :state="studyState"
       :unlocked-track-keys="unlockedTrackKeys"
       @back-home="goHomeFromStudy"
-      @add-points="addStudyPoints"
+      @add-knowledge-points="addStudyKnowledgePoints"
       @record-answer="recordStudyAnswer"
       @upgrade-track="upgradeTrack"
     />
@@ -166,6 +167,7 @@
 
     <SkillLoadoutScreen
       v-else-if="currentScreen === 'skillLoadout'"
+      :is-unlocked="isSkillLoadoutUnlocked"
       :skills="normalizedSkillPool"
       :selected-ids="playerConfig.equippedSkillIds"
       :max-slots="MAX_SKILL_SLOTS"
@@ -273,7 +275,7 @@ let unsubscribeMatchStatus = null;
 let detachAudioUnlock = null;
 let detachAppAudioLifecycle = null;
 const studyState = reactive({
-  points: 0,
+  knowledgePoints: 0,
   answered: 0,
   correct: 0,
   tracks: {
@@ -435,6 +437,9 @@ const unlockedStageIds = computed(() => {
     .map(stage => stage.id);
 });
 const unlockedStageSet = computed(() => new Set(unlockedStageIds.value));
+const isSkillLoadoutUnlocked = computed(() => {
+  return clearedStageSet.value.has(STAGE_IDS.STAGE_01);
+});
 const unlockedTrackKeys = computed(() => {
   if (!isPlayerTestAccount.value) return ['optometry', 'optics', 'contactLens', 'other'];
 
@@ -668,7 +673,7 @@ function normalizeTrack(rawTrack = {}) {
 
 function buildDefaultStudyData() {
   return {
-    points: 0,
+    knowledgePoints: 0,
     answered: 0,
     correct: 0,
     tracks: {
@@ -700,7 +705,7 @@ function normalizeStudyData(rawData = {}) {
     : [];
 
   return {
-    points: Math.max(0, Math.floor(sanitizeNumber(data.points, 0))),
+    knowledgePoints: Math.max(0, Math.floor(sanitizeNumber(data.knowledgePoints, data.points ?? 0))),
     answered: Math.max(0, Math.floor(sanitizeNumber(data.answered, 0))),
     correct: Math.max(0, Math.floor(sanitizeNumber(data.correct, 0))),
     tracks: {
@@ -721,7 +726,7 @@ function normalizeStudyData(rawData = {}) {
 
 function applyStudyData(nextData) {
   const data = normalizeStudyData(nextData);
-  studyState.points = data.points;
+  studyState.knowledgePoints = data.knowledgePoints;
   studyState.answered = data.answered;
   studyState.correct = data.correct;
   studyState.tracks.optometry = data.tracks.optometry;
@@ -735,7 +740,7 @@ function applyStudyData(nextData) {
 
 function snapshotStudyData() {
   return {
-    points: studyState.points,
+    knowledgePoints: studyState.knowledgePoints,
     answered: studyState.answered,
     correct: studyState.correct,
     tracks: {
@@ -1274,8 +1279,8 @@ function confirmAccountDialog() {
   closeAccountDialog();
 }
 
-function addStudyPoints(points) {
-  studyState.points += points;
+function addStudyKnowledgePoints(points) {
+  studyState.knowledgePoints += points;
 }
 
 function recordStudyAnswer(payload) {
@@ -1294,9 +1299,9 @@ function upgradeTrack(payload) {
   const { trackKey, cost } = payload;
   const track = studyState.tracks[trackKey];
   if (!track) return;
-  if (studyState.points < cost) return;
+  if (studyState.knowledgePoints < cost) return;
 
-  studyState.points -= cost;
+  studyState.knowledgePoints -= cost;
   track.level += 1;
 }
 </script>

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "sync:ios": "rm -rf dist && npm run build && npx cap sync ios"
   },
   "dependencies": {
     "@capacitor/cli": "^7.6.2",
