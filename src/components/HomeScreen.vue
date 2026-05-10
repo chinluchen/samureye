@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   isSkillLoadoutUnlocked: {
     type: Boolean,
     default: false
@@ -58,7 +58,7 @@ const emit = defineEmits([
 ]);
 
 function onSkillLoadoutClick(event) {
-  if (!isSkillLoadoutUnlocked) return;
+  if (!props.isSkillLoadoutUnlocked) return;
   emit('open-skill-loadout');
 }
 </script>

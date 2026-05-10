@@ -33,6 +33,7 @@ export class SoundEngine {
       bgm_study_research: studyBgmUrl,
       bgm_character_select: characterSelectBgmUrl
     };
+    this.hasPreloadedEssentialSamples = false;
   }
 
   isContextRunning() {
@@ -41,12 +42,22 @@ export class SoundEngine {
 
   handleContextResumed() {
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
+    // Some WKWebView builds can leave pre-started buffer sources silent after resume.
+    // Recreate BGM nodes when context becomes running to guarantee audible playback.
+    if (this.bgmNodes) {
+      this.stopBgm();
+    }
     this.startBgm();
   }
 
   init() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx.onstatechange = () => {
+        if (this.ctx?.state === 'running') {
+          this.handleContextResumed();
+        }
+      };
     }
 
     if (this.ctx.state === 'suspended') {
@@ -61,12 +72,46 @@ export class SoundEngine {
         });
     }
 
-    this.preloadSamples();
+    if (!this.hasPreloadedEssentialSamples) {
+      this.preloadEssentialSamples();
+      this.hasPreloadedEssentialSamples = true;
+    }
   }
 
-  preloadSamples() {
-    Object.keys(this.sampleUrls).forEach((sampleId) => {
-      void this.loadSample(sampleId);
+  preloadEssentialSamples() {
+    // Avoid decoding all large BGM tracks at once on iOS.
+    void this.loadSample('slash');
+    const sceneSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
+    if (sceneSampleId) void this.loadSample(sceneSampleId);
+  }
+
+  decodeAudioDataCompat(arrayBuffer) {
+    return new Promise((resolve, reject) => {
+      if (!this.ctx) {
+        reject(new Error('AudioContext not ready'));
+        return;
+      }
+
+      let settled = false;
+      const safeResolve = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const safeReject = (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error ?? new Error('decodeAudioData failed'));
+      };
+
+      try {
+        const maybePromise = this.ctx.decodeAudioData(arrayBuffer, safeResolve, safeReject);
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(safeResolve).catch(safeReject);
+        }
+      } catch (error) {
+        safeReject(error);
+      }
     });
   }
 
@@ -78,16 +123,40 @@ export class SoundEngine {
     if (!url) return null;
 
     const task = fetch(url)
-      .then(response => {
-        if (!response.ok) throw new Error(`Failed to load sample: ${sampleId}`);
-        return response.arrayBuffer();
+      .then(async response => {
+        // On some iOS WKWebView/Capacitor builds, local bundled media may report
+        // status=0 while still providing a readable body.
+        if (!response.ok && response.status !== 0) {
+          throw new Error(`Failed to load sample: ${sampleId} (status ${response.status})`);
+        }
+        if (this.ctx?.state === 'suspended') {
+          try {
+            await this.ctx.resume();
+          } catch {
+            // Keep going; decode may still succeed depending on platform state.
+          }
+        }
+        const bytes = await response.arrayBuffer();
+        if (!bytes || bytes.byteLength === 0) {
+          throw new Error(`Failed to load sample: ${sampleId} (empty payload)`);
+        }
+        return bytes;
       })
-      .then(arrayBuffer => this.ctx.decodeAudioData(arrayBuffer.slice(0)))
+      .then(arrayBuffer => this.decodeAudioDataCompat(arrayBuffer.slice(0)))
       .then(decoded => {
+        if (!decoded) return null;
         this.sampleBuffers[sampleId] = decoded;
         return decoded;
       })
-      .catch(() => null)
+      .catch((error) => {
+        console.warn(`[SoundEngine] Failed to load sample: ${sampleId}`, {
+          name: error?.name ?? 'Error',
+          message: error?.message ?? String(error ?? ''),
+          ctxState: this.ctx?.state ?? 'unknown',
+          sampleUrl: url
+        });
+        return null;
+      })
       .finally(() => {
         delete this.sampleLoaders[sampleId];
       });
@@ -113,6 +182,7 @@ export class SoundEngine {
     source.connect(gain);
     gain.connect(this.ctx.destination);
     source.start();
+
     return true;
   }
 
@@ -165,6 +235,8 @@ export class SoundEngine {
       return;
     }
     this.bgmScene = nextScene;
+    const sceneSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
+    if (sceneSampleId) void this.loadSample(sceneSampleId);
 
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
     if (!this.hasActiveBgm()) {
@@ -186,12 +258,25 @@ export class SoundEngine {
 
   startBgm() {
     if (!this.bgmEnabled || !this.enabled || this.masterVolume <= 0) return;
-    this.bgmPausedForAppState = false;
+    this.init();
+    if (!this.ctx) return;
+
+    // Never start/restart looping sources while context is suspended/interrupted.
+    // Wait until a successful resume/user gesture, then rebuild from handleContextResumed().
+    if (this.ctx.state !== 'running') {
+      this.ctx.resume()
+        .then(() => {
+          if (this.ctx?.state === 'running') this.handleContextResumed();
+        })
+        .catch(() => {
+          // iOS autoplay policy may block resume until gesture.
+        });
+      return;
+    }
 
     const preset = BGM_SCENE_PRESETS[this.bgmScene] ?? BGM_SCENE_PRESETS.home;
     const bgmSampleId = BGM_SCENE_TRACK_SAMPLE[this.bgmScene];
     if (bgmSampleId) {
-      this.init();
       if (this.bgmNodes) return;
 
       const sample = this.sampleBuffers[bgmSampleId];
