@@ -39,7 +39,7 @@
 
       <div class="matchmaking-actions">
         <button
-          v-if="status.phase !== 'searching'"
+          v-if="status.phase !== 'searching' && status.phase !== 'matched'"
           type="button"
           class="home-start-button matchmaking-cta-primary"
           @click="$emit('start-match')"
@@ -59,9 +59,10 @@
           v-if="status.phase === 'matched'"
           type="button"
           class="home-menu-button home-menu-button-active matchmaking-cta-go"
-          @click="$emit('start-battle')"
+          :disabled="Boolean(status.localReady) || Boolean(status.startPending)"
+          @click="$emit('ready-battle')"
         >
-          進入對戰（示範）
+          {{ status.localReady ? '已準備' : '準備對戰' }}
         </button>
       </div>
     </article>
@@ -90,5 +91,5 @@ const providerLabel = computed(() => {
 const localName = computed(() => props.status.localProfile?.displayName || 'SAMUREYE');
 const localAvatar = computed(() => props.status.localProfile?.avatarEmoji || '🗡️');
 
-defineEmits(['back-home', 'sign-in', 'start-match', 'cancel-match', 'start-battle']);
+defineEmits(['back-home', 'sign-in', 'start-match', 'cancel-match', 'ready-battle']);
 </script>

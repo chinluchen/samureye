@@ -127,6 +127,14 @@ export class MockMatchProvider {
     this.emit();
   }
 
+  subscribeRealtime() {
+    return () => {};
+  }
+
+  async sendRealtimeEvent() {
+    // Mock provider does not implement realtime transport.
+  }
+
   startSearchingTimers() {
     this.clearRuntimeTimers();
 

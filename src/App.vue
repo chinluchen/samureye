@@ -32,7 +32,7 @@
       @sign-in="syncMatchmakingAccount"
       @start-match="startPvPMatchmaking"
       @cancel-match="cancelPvPMatchmaking"
-      @start-battle="startMatchedBattlePreview"
+      @ready-battle="markLocalPlayerReady"
     />
 
     <template v-else-if="currentScreen === 'battle'">
@@ -276,13 +276,21 @@ const matchmakingStatus = reactive({
     avatarEmoji: '🗡️'
   },
   opponentProfile: null,
-  errorMessage: ''
+  errorMessage: '',
+  localReady: false,
+  opponentReady: false,
+  startPending: false
 });
 let unsubscribeMatchStatus = null;
+let unsubscribeRealtimeEvents = null;
 let detachAudioUnlock = null;
 let detachAppAudioLifecycle = null;
 let appIsInBackground = false;
 let shouldAutoResumeBattleAfterForeground = false;
+let localPvpEventSeq = 0;
+const remotePvpEventSeqByPlayer = new Map();
+let pendingPvpStartTimer = null;
+let lastPvpBattleSeed = '';
 const studyState = reactive({
   knowledgePoints: 0,
   answered: 0,
@@ -376,7 +384,9 @@ const game = useBattleGame({
   getEnemySkillPool,
   shouldSkipRoundIntro: shouldSkipTutorialRoundIntro,
   getForcedTargetId: getTutorialForcedTargetId,
-  shouldDisableRoundTimer: shouldUseUntimedTutorial
+  shouldDisableRoundTimer: shouldUseUntimedTutorial,
+  isPvpBattle: () => battleSessionMode.value === 'pvp',
+  onLocalAttack: handleLocalPvpAttack
 });
 
 const {
@@ -413,7 +423,9 @@ const {
   setSfxVolume: setSfxVolumeState,
   setSfxEnabled: setSfxEnabledState,
   setBgmEnabled: setBgmEnabledState,
-  setVibrationEnabled: setVibrationEnabledState
+  setVibrationEnabled: setVibrationEnabledState,
+  applyRemoteDamage,
+  forceOpponentDefeat
 } = game;
 
 const selectedCharacter = computed(() => {
@@ -998,6 +1010,7 @@ function getPreferredDisplayName() {
 }
 
 function applyMatchStatus(nextStatus = {}) {
+  const prevPhase = matchmakingStatus.phase;
   matchmakingStatus.provider = nextStatus.provider ?? matchmakingStatus.provider;
   matchmakingStatus.phase = nextStatus.phase ?? 'idle';
   matchmakingStatus.message = nextStatus.message ?? '';
@@ -1010,6 +1023,309 @@ function applyMatchStatus(nextStatus = {}) {
   };
   matchmakingStatus.opponentProfile = nextStatus.opponentProfile ?? null;
   matchmakingStatus.errorMessage = nextStatus.errorMessage ?? '';
+
+  const nextPhase = matchmakingStatus.phase;
+  if (nextPhase === 'matched' && prevPhase !== 'matched') {
+    resetPvpRealtimeState();
+  }
+  if (nextPhase !== 'matched') {
+    resetPvpReadyState();
+  } else {
+    refreshPvpReadyMessage();
+  }
+}
+
+function clearPendingPvpStartTimer() {
+  if (!pendingPvpStartTimer) return;
+  clearTimeout(pendingPvpStartTimer);
+  pendingPvpStartTimer = null;
+}
+
+function resolveMatchPlayerId(profile = null) {
+  if (!profile || typeof profile !== 'object') return '';
+  const gamePlayerId = String(profile.id ?? '').trim();
+  if (gamePlayerId) return gamePlayerId;
+  return String(profile.gameCenterId ?? '').trim();
+}
+
+function isCurrentPlayerMatchHost() {
+  const localId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  if (!localId || !opponentId) return true;
+  return localId.localeCompare(opponentId) < 0;
+}
+
+function generatePvpBattleSeed() {
+  return `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function resetPvpReadyState() {
+  clearPendingPvpStartTimer();
+  matchmakingStatus.localReady = false;
+  matchmakingStatus.opponentReady = false;
+  matchmakingStatus.startPending = false;
+  lastPvpBattleSeed = '';
+}
+
+function refreshPvpReadyMessage() {
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (matchmakingStatus.startPending) {
+    matchmakingStatus.message = '雙方已準備，正在同步進入對戰...';
+    return;
+  }
+  if (matchmakingStatus.localReady && matchmakingStatus.opponentReady) {
+    matchmakingStatus.message = '雙方已準備，等待主機發送開戰。';
+    return;
+  }
+  if (matchmakingStatus.localReady) {
+    matchmakingStatus.message = '你已準備，等待對手準備...';
+    return;
+  }
+  if (matchmakingStatus.opponentReady) {
+    matchmakingStatus.message = '對手已準備，請按「準備對戰」。';
+    return;
+  }
+  matchmakingStatus.message = '配對成功，請準備對戰。';
+}
+
+function schedulePvpBattleStart(startAtMs = Date.now()) {
+  if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
+  clearPendingPvpStartTimer();
+  matchmakingStatus.startPending = true;
+  refreshPvpReadyMessage();
+  const safeStartAt = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : Date.now();
+  const delay = Math.max(0, Math.min(5000, safeStartAt - Date.now()));
+  if (delay === 0) {
+    startPvpBattle();
+    return;
+  }
+  pendingPvpStartTimer = setTimeout(() => {
+    pendingPvpStartTimer = null;
+    startPvpBattle();
+  }, delay);
+}
+
+function checkBothReady(reason = '') {
+  console.info(`[PvP Sync] checkBothReady被呼叫 reason=${reason} selfReady=${String(matchmakingStatus.localReady)} opponentReady=${String(matchmakingStatus.opponentReady)} phase=${matchmakingStatus.phase}`);
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (!matchmakingStatus.localReady || !matchmakingStatus.opponentReady) return;
+  if (matchmakingStatus.startPending) return;
+
+  const isHost = isCurrentPlayerMatchHost();
+  console.info(`[PvP Sync] isHost狀態: ${isHost ? 'host' : 'guest'}`);
+  if (!isHost) return;
+
+  const seed = generatePvpBattleSeed();
+  lastPvpBattleSeed = seed;
+  const startAt = Date.now();
+  matchmakingStatus.startPending = true;
+  refreshPvpReadyMessage();
+  console.info(`[PvP Sync] host送出start_battle seed=${seed}`);
+  void sendPvpRealtimeEvent('start_battle', {
+    mode: 'pvp',
+    seed,
+    startAt
+  });
+  schedulePvpBattleStart(startAt);
+}
+
+function markLocalPlayerReady() {
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (matchmakingStatus.localReady) return;
+  matchmakingStatus.localReady = true;
+  refreshPvpReadyMessage();
+  console.info('[PvP Sync] 本機送出ready（單次）');
+  void sendPvpRealtimeEvent('ready', { ready: true });
+  checkBothReady('local_ready');
+}
+
+function nextLocalPvpEventSeq() {
+  localPvpEventSeq += 1;
+  return localPvpEventSeq;
+}
+
+function resetPvpRealtimeState() {
+  localPvpEventSeq = 0;
+  remotePvpEventSeqByPlayer.clear();
+  resetPvpReadyState();
+}
+
+function shouldAcceptPvpPacket(packet = {}) {
+  const sourcePlayerId = String(packet._sourcePlayerId ?? '').trim();
+  const sequence = Number(packet.seq);
+  if (!sourcePlayerId || !Number.isFinite(sequence) || sequence <= 0) return true;
+  const lastSequence = Number(remotePvpEventSeqByPlayer.get(sourcePlayerId) ?? 0);
+  if (sequence <= lastSequence) return false;
+  remotePvpEventSeqByPlayer.set(sourcePlayerId, sequence);
+  return true;
+}
+
+function parseJsonObjectSafely(text) {
+  if (typeof text !== 'string') return null;
+  const sanitized = text.replace(/\u0000/g, '').trim();
+  if (!sanitized) return null;
+
+  const candidates = [sanitized];
+  const firstBrace = sanitized.indexOf('{');
+  const lastBrace = sanitized.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const sliced = sanitized.slice(firstBrace, lastBrace + 1);
+    if (sliced !== sanitized) candidates.push(sliced);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // Keep trying with the next candidate.
+    }
+  }
+
+  return null;
+}
+
+function decodeBase64ToText(base64Text) {
+  if (typeof base64Text !== 'string' || !base64Text) return '';
+  try {
+    if (typeof atob === 'function') return atob(base64Text);
+  } catch {
+    // Fall back to Buffer below.
+  }
+  if (typeof Buffer !== 'undefined') {
+    try {
+      return Buffer.from(base64Text, 'base64').toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function normalizeIncomingPvpPacket(packet = {}) {
+  if (!packet || typeof packet !== 'object') return {};
+
+  const sourcePlayerId = String(packet._sourcePlayerId ?? '').trim();
+  const sourceDisplayName = String(packet._sourceDisplayName ?? '').trim();
+  let normalized = packet;
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!normalized || typeof normalized !== 'object') break;
+
+    if (normalized.type === 'raw_json_text' && typeof normalized.json === 'string') {
+      const parsed = parseJsonObjectSafely(normalized.json);
+      if (parsed) {
+        normalized = parsed;
+        continue;
+      }
+    }
+
+    if (normalized.type === 'raw' && typeof normalized.dataBase64 === 'string') {
+      const decoded = decodeBase64ToText(normalized.dataBase64);
+      const parsed = parseJsonObjectSafely(decoded);
+      if (parsed) {
+        normalized = parsed;
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  if (!normalized || typeof normalized !== 'object') {
+    return {};
+  }
+
+  return {
+    ...normalized,
+    _sourcePlayerId: sourcePlayerId,
+    _sourceDisplayName: sourceDisplayName
+  };
+}
+
+async function sendPvpRealtimeEvent(type, payload = {}) {
+  const eventType = String(type || '').trim();
+  if (!eventType) return;
+  const packet = {
+    version: 1,
+    type: eventType,
+    seq: nextLocalPvpEventSeq(),
+    ts: Date.now(),
+    payload
+  };
+  try {
+    await matchService.sendRealtimeEvent(packet);
+  } catch (error) {
+    console.warn('Failed to send PvP realtime event:', error);
+    if (matchmakingStatus.phase === 'matched') {
+      const code = String(error?.code ?? '');
+      if (code !== 'match_not_ready' && code !== 'match_unavailable') {
+        matchmakingStatus.errorMessage = String(error?.message ?? 'PvP 同步傳輸失敗。');
+      }
+    }
+  }
+}
+
+function handleLocalPvpAttack(event = {}) {
+  if (!isCurrentBattlePvP.value) return;
+  if (currentScreen.value !== 'battle') return;
+  if (String(event?.type ?? '') !== 'damage') return;
+  const amount = Math.max(0, Number(event?.amount ?? 0));
+  if (amount <= 0) return;
+  void sendPvpRealtimeEvent('damage', { amount });
+}
+
+function handlePvpRealtimeEvent(packet = {}) {
+  const normalizedPacket = normalizeIncomingPvpPacket(packet);
+  if (!normalizedPacket || typeof normalizedPacket !== 'object') return;
+  if (!shouldAcceptPvpPacket(normalizedPacket)) return;
+
+  const type = String(normalizedPacket.type ?? '').trim();
+  console.info(`[PvP Sync] 解析後message.type=${type || 'unknown'}`);
+  if (!type) return;
+
+  if (type === 'ready') {
+    if (matchmakingStatus.phase !== 'matched') return;
+    const isReady = normalizedPacket?.payload?.ready !== false;
+    matchmakingStatus.opponentReady = Boolean(isReady);
+    if (matchmakingStatus.opponentReady) {
+      console.info('[PvP Sync] 設定opponentReady=true');
+    }
+    refreshPvpReadyMessage();
+    checkBothReady('remote_ready');
+    return;
+  }
+
+  if (type === 'start_battle' || type === 'battle_start') {
+    if (matchmakingStatus.phase !== 'matched') return;
+    const mode = String(normalizedPacket?.payload?.mode ?? '').trim().toLowerCase();
+    if (mode && mode !== 'pvp') return;
+    const startAt = Number(normalizedPacket?.payload?.startAt ?? Date.now());
+    const seed = String(normalizedPacket?.payload?.seed ?? '').trim();
+    if (seed) {
+      lastPvpBattleSeed = seed;
+    }
+    console.info(`[PvP Sync] 收到start_battle，進入PvP seed=${seed || 'none'}`);
+    schedulePvpBattleStart(startAt);
+    return;
+  }
+
+  if (type === 'damage') {
+    if (!isCurrentBattlePvP.value) return;
+    if (currentScreen.value !== 'battle') return;
+    if (gameState.value === 'gameResult') return;
+    const amount = Math.max(0, Number(normalizedPacket?.payload?.amount ?? 0));
+    if (amount <= 0) return;
+    applyRemoteDamage(amount);
+    return;
+  }
+
+  if (type === 'forfeit') {
+    if (!isCurrentBattlePvP.value) return;
+    if (currentScreen.value !== 'battle') return;
+    if (gameState.value === 'gameResult') return;
+    forceOpponentDefeat();
+  }
 }
 
 function resolveBgmSceneId(screen) {
@@ -1030,6 +1346,7 @@ function forfeitActivePvpBattleAndExit(destination = 'home') {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   shouldAutoResumeBattleAfterForeground = false;
+  void sendPvpRealtimeEvent('forfeit', { reason: 'leave_battle_screen' });
   setPaused(false);
   stopGame();
 
@@ -1111,6 +1428,9 @@ onMounted(async () => {
   unsubscribeMatchStatus = matchService.subscribe((status) => {
     applyMatchStatus(status);
   });
+  unsubscribeRealtimeEvents = matchService.subscribeRealtime((packet) => {
+    handlePvpRealtimeEvent(packet);
+  });
 
   const unlockAudio = () => {
     sfx.init();
@@ -1176,9 +1496,12 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearPendingPvpStartTimer();
   if (typeof unsubscribeMatchStatus === 'function') unsubscribeMatchStatus();
+  if (typeof unsubscribeRealtimeEvents === 'function') unsubscribeRealtimeEvents();
   if (typeof detachAudioUnlock === 'function') detachAudioUnlock();
   if (typeof detachAppAudioLifecycle === 'function') detachAppAudioLifecycle();
+  unsubscribeRealtimeEvents = null;
   detachAudioUnlock = null;
   detachAppAudioLifecycle = null;
   matchService.destroy();
@@ -1293,7 +1616,10 @@ function startBattle() {
 }
 
 function startPvpBattle() {
+  clearPendingPvpStartTimer();
+  console.info(`[PvP Sync] 進入PvP戰鬥流程 seed=${lastPvpBattleSeed || 'none'}`);
   battleSessionMode.value = 'pvp';
+  selectedStageId.value = STAGE_IDS.STAGE_02;
   resetTutorialState();
   currentScreen.value = 'battle';
   isBattleMenuOpen.value = false;
@@ -1313,6 +1639,7 @@ async function syncMatchmakingAccount() {
 }
 
 async function startPvPMatchmaking() {
+  resetPvpRealtimeState();
   await matchService.startMatchmaking({
     displayName: getPreferredDisplayName(),
     characterId: playerConfig.characterId,
@@ -1321,20 +1648,16 @@ async function startPvPMatchmaking() {
 }
 
 async function cancelPvPMatchmaking() {
+  resetPvpRealtimeState();
   await matchService.cancelMatchmaking();
 }
 
 async function goHomeFromMatchmaking() {
-  if (matchmakingStatus.phase === 'searching') {
+  if (matchmakingStatus.phase === 'searching' || matchmakingStatus.phase === 'matched') {
+    resetPvpRealtimeState();
     await matchService.cancelMatchmaking();
   }
   currentScreen.value = 'home';
-}
-
-function startMatchedBattlePreview() {
-  if (matchmakingStatus.phase !== 'matched') return;
-  selectedStageId.value = STAGE_IDS.STAGE_02;
-  startPvpBattle();
 }
 
 function openStageSelect() {
@@ -1346,6 +1669,7 @@ function goHomeFromStageSelect() {
 }
 
 function goStageSelectFromResult() {
+  resetPvpRealtimeState();
   battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;
@@ -1356,6 +1680,7 @@ function goStageSelectFromResult() {
 }
 
 function goMatchmakingFromResult() {
+  resetPvpRealtimeState();
   battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;

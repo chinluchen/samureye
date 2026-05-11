@@ -23,7 +23,9 @@ export function useBattleGame({
   getEnemySkillPool = null,
   shouldSkipRoundIntro = null,
   getForcedTargetId = null,
-  shouldDisableRoundTimer = null
+  shouldDisableRoundTimer = null,
+  isPvpBattle = null,
+  onLocalAttack = null
 } = {}) {
   const playerMaxHp = ref(GAME_CONFIG.maxHp);
   const enemyMaxHp = ref(GAME_CONFIG.maxHp);
@@ -156,6 +158,10 @@ export function useBattleGame({
     return gameState.value === 'finishing';
   }
 
+  function isPvpMode() {
+    return typeof isPvpBattle === 'function' ? Boolean(isPvpBattle()) : false;
+  }
+
   function getSkillCooldownSec(skill) {
     const seconds = Number(skill?.cooldownSec ?? 0);
     return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
@@ -213,8 +219,16 @@ export function useBattleGame({
   }
 
   function damageEnemy(amount, color = '#ef4444') {
-    enemyHp.value = Math.max(0, enemyHp.value - amount);
-    showDamagePopup(-amount, false, color, { finishing: isFinishing() });
+    const damage = Math.max(0, Number(amount));
+    if (damage <= 0) return;
+    enemyHp.value = Math.max(0, enemyHp.value - damage);
+    showDamagePopup(-damage, false, color, { finishing: isFinishing() });
+    if (typeof onLocalAttack === 'function') {
+      onLocalAttack({
+        type: 'damage',
+        amount: damage
+      });
+    }
   }
 
   function damagePlayer(amount, color = '#ef4444') {
@@ -397,21 +411,23 @@ export function useBattleGame({
         timeLeft.value -= GAME_CONFIG.tickMs / 1000;
       }
 
-      if (Math.random() < battleStats.enemyAttackChancePerTick && !enemyDebuff.value) {
-        enemyRoundHits.value++;
-        damagePlayer(battleStats.enemyAttackDamage);
-        triggerImpactShake(Math.random() * 360, 10);
-        vibrate(16);
-        sfx.playHit();
+      if (!isPvpMode()) {
+        if (Math.random() < battleStats.enemyAttackChancePerTick && !enemyDebuff.value) {
+          enemyRoundHits.value++;
+          damagePlayer(battleStats.enemyAttackDamage);
+          triggerImpactShake(Math.random() * 360, 10);
+          vibrate(16);
+          sfx.playHit();
 
-        if (playerHp.value <= 0) {
-          triggerSlowMotionFinish();
-          return;
+          if (playerHp.value <= 0) {
+            triggerSlowMotionFinish();
+            return;
+          }
         }
-      }
-
-      if (Math.random() < battleStats.enemyUltChancePerTick && !enemyDebuff.value && timeLeft.value > 1.5) {
-        useEnemyUlt();
+  
+        if (Math.random() < battleStats.enemyUltChancePerTick && !enemyDebuff.value && timeLeft.value > 1.5) {
+          useEnemyUlt();
+        }
       }
 
       if (!disableRoundTimer && timeLeft.value <= 0) {
@@ -716,6 +732,25 @@ export function useBattleGame({
     vibrationEnabled.value = Boolean(enabled);
   }
 
+  function applyRemoteDamage(amount, color = '#ef4444') {
+    if (gameState.value === 'gameResult') return;
+    const damage = Math.max(0, Number(amount));
+    if (damage <= 0) return;
+    damagePlayer(damage, color);
+    triggerImpactShake(Math.random() * 360, 10);
+    vibrate(16);
+    sfx.playHit();
+    if (playerHp.value <= 0) {
+      triggerSlowMotionFinish();
+    }
+  }
+
+  function forceOpponentDefeat() {
+    if (gameState.value === 'gameResult') return;
+    enemyHp.value = 0;
+    triggerSlowMotionFinish();
+  }
+
   if (autoStart) {
     onMounted(initGame);
   }
@@ -766,6 +801,8 @@ export function useBattleGame({
     setSfxVolume,
     setSfxEnabled,
     setBgmEnabled,
-    setVibrationEnabled
+    setVibrationEnabled,
+    applyRemoteDamage,
+    forceOpponentDefeat
   };
 }

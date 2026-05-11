@@ -72,7 +72,8 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
         CAPPluginMethod(name: "getLocalPlayer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startMatchmaking", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "cancelMatchmaking", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "cancelMatchmaking", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "sendMatchData", returnType: CAPPluginReturnPromise)
     ]
 
     private var pendingAuthCalls: [CAPPluginCall] = []
@@ -98,6 +99,7 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
                 call.reject("Game Center 尚未登入。")
                 return
             }
+            self.currentMatch = nil
             if self.pendingMatchCall != nil {
                 call.reject("配對已在進行中。")
                 return
@@ -119,9 +121,10 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
             GKMatchmaker.shared().findMatch(for: request) { [weak self] match, error in
                 guard let self else { return }
                 DispatchQueue.main.async {
-                    guard let pendingCall = self.pendingMatchCall else { return }
+                    guard self.pendingMatchCall != nil else { return }
 
                     if let error {
+                        let pendingCall = self.pendingMatchCall
                         self.pendingMatchCall = nil
                         let nsError = error as NSError
                         if nsError.domain == GKErrorDomain && nsError.code == GKError.Code.cancelled.rawValue {
@@ -129,7 +132,7 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
                                 "phase": "idle",
                                 "message": "已取消配對。"
                             ])
-                            pendingCall.reject("已取消配對。", "cancelled", nsError)
+                            pendingCall?.reject("已取消配對。", "cancelled", nsError)
                             return
                         }
                         self.notifyListeners("matchStateChange", data: [
@@ -137,36 +140,27 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
                             "message": "配對失敗。",
                             "errorMessage": nsError.localizedDescription
                         ])
-                        pendingCall.reject("配對失敗。", "matchmaking_error", nsError)
+                        pendingCall?.reject("配對失敗。", "matchmaking_error", nsError)
                         return
                     }
 
                     guard let match else {
+                        let pendingCall = self.pendingMatchCall
                         self.pendingMatchCall = nil
                         self.notifyListeners("matchStateChange", data: [
                             "phase": "error",
                             "message": "配對失敗。",
                             "errorMessage": "Game Center 沒有回傳對戰資料。"
                         ])
-                        pendingCall.reject("配對失敗。", "empty_match")
+                        pendingCall?.reject("配對失敗。", "empty_match")
                         return
                     }
 
                     self.currentMatch = match
                     match.delegate = self
                     GKMatchmaker.shared().finishMatchmaking(for: match)
-                    self.pendingMatchCall = nil
-
-                    let opponent = self.resolveOpponentPayload(from: match.players.first)
-                    self.notifyListeners("matchStateChange", data: [
-                        "phase": "matched",
-                        "message": "配對成功，準備進入對戰。",
-                        "opponentProfile": opponent
-                    ])
-                    pendingCall.resolve([
-                        "matchId": match.description,
-                        "opponentProfile": opponent
-                    ])
+                    self.notifyMatchConnectingState(for: match)
+                    self.finalizeMatchedStateIfReady(for: match)
                 }
             }
         }
@@ -175,6 +169,11 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
     @objc func cancelMatchmaking(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             GKMatchmaker.shared().cancel()
+
+            if let activeMatch = self.currentMatch {
+                activeMatch.disconnect()
+                self.currentMatch = nil
+            }
 
             if let pendingCall = self.pendingMatchCall {
                 self.pendingMatchCall = nil
@@ -186,6 +185,37 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
                 "message": "已取消配對。"
             ])
             call.resolve()
+        }
+    }
+
+    @objc func sendMatchData(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard GKLocalPlayer.local.isAuthenticated else {
+                call.reject("Game Center 尚未登入。")
+                return
+            }
+            guard let match = self.currentMatch else {
+                call.reject("目前沒有可用的對戰連線。", "match_unavailable")
+                return
+            }
+            if match.expectedPlayerCount > 0 || match.players.isEmpty {
+                call.reject("對戰連線尚未完成，請稍候。", "match_not_ready")
+                return
+            }
+            guard let payload = call.getObject("payload"), JSONSerialization.isValidJSONObject(payload) else {
+                call.reject("缺少有效的 payload。", "invalid_payload")
+                return
+            }
+
+            do {
+                let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+                let mode: GKMatch.SendDataMode = (call.getBool("reliable") ?? true) ? .reliable : .unreliable
+                try match.sendData(toAllPlayers: data, with: mode)
+                call.resolve()
+            } catch {
+                let nsError = error as NSError
+                call.reject("送出對戰資料失敗。", "send_data_error", nsError)
+            }
         }
     }
 
@@ -272,23 +302,108 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
         ]
     }
 
+    private func notifyMatchConnectingState(for match: GKMatch) {
+        let expected = max(0, match.expectedPlayerCount)
+        let opponent = resolveOpponentPayload(from: match.players.first)
+        let message = expected > 0
+            ? "配對成功，等待對手連線完成..."
+            : "配對成功，正在建立戰鬥同步..."
+        notifyListeners("matchStateChange", data: [
+            "phase": "searching",
+            "message": message,
+            "opponentProfile": opponent,
+            "expectedPlayerCount": expected,
+            "connectedPlayerCount": match.players.count
+        ])
+    }
+
+    private func finalizeMatchedStateIfReady(for match: GKMatch) {
+        guard let activeMatch = currentMatch, activeMatch === match else { return }
+        if match.expectedPlayerCount > 0 {
+            notifyMatchConnectingState(for: match)
+            return
+        }
+
+        let opponent = resolveOpponentPayload(from: match.players.first)
+        notifyListeners("matchStateChange", data: [
+            "phase": "matched",
+            "message": "配對完成，請雙方準備後開始對戰。",
+            "opponentProfile": opponent,
+            "expectedPlayerCount": 0,
+            "connectedPlayerCount": match.players.count
+        ])
+
+        if let pendingCall = pendingMatchCall {
+            pendingMatchCall = nil
+            pendingCall.resolve([
+                "matchId": match.description,
+                "opponentProfile": opponent
+            ])
+        }
+    }
+
+    func match(_ match: GKMatch, didReceive data: Data, fromRemotePlayer player: GKPlayer) {
+        DispatchQueue.main.async {
+            var packet: JSObject = [
+                "fromPlayerId": player.gamePlayerID,
+                "fromDisplayName": player.displayName
+            ]
+
+            if let jsonText = String(data: data, encoding: .utf8) {
+                let sanitizedText = jsonText
+                    .replacingOccurrences(of: "\u{0000}", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                packet["payload"] = [
+                    "type": "raw_json_text",
+                    "json": sanitizedText
+                ]
+            } else {
+                packet["payload"] = [
+                    "type": "raw",
+                    "dataBase64": data.base64EncodedString()
+                ]
+            }
+
+            self.notifyListeners("matchData", data: packet)
+        }
+    }
+
     func match(_ match: GKMatch, player: GKPlayer, didChange state: GKPlayerConnectionState) {
         if state == .connected {
             notifyListeners("matchPlayerStateChange", data: [
                 "playerId": player.gamePlayerID,
-                "state": "connected"
+                "state": "connected",
+                "expectedPlayerCount": max(0, match.expectedPlayerCount),
+                "connectedPlayerCount": match.players.count
             ])
+            finalizeMatchedStateIfReady(for: match)
             return
         }
         if state == .disconnected {
+            if let activeMatch = currentMatch, activeMatch === match {
+                currentMatch = nil
+            }
+            if let pendingCall = pendingMatchCall {
+                pendingMatchCall = nil
+                pendingCall.reject("配對連線中斷。", "peer_disconnected")
+            }
             notifyListeners("matchPlayerStateChange", data: [
                 "playerId": player.gamePlayerID,
-                "state": "disconnected"
+                "state": "disconnected",
+                "expectedPlayerCount": max(0, match.expectedPlayerCount),
+                "connectedPlayerCount": match.players.count
             ])
         }
     }
 
     func match(_ match: GKMatch, didFailWithError error: Error?) {
+        if let activeMatch = currentMatch, activeMatch === match {
+            currentMatch = nil
+        }
+        if let pendingCall = pendingMatchCall {
+            pendingMatchCall = nil
+            pendingCall.reject("配對連線中斷。", "match_connection_failed", error as NSError?)
+        }
         let message = (error as NSError?)?.localizedDescription ?? "未知錯誤"
         notifyListeners("matchStateChange", data: [
             "phase": "error",

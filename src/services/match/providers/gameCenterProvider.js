@@ -35,13 +35,99 @@ function isCancelledError(error) {
   return code.includes('cancel') || message.includes('cancel') || message.includes('取消');
 }
 
+function parseJsonObjectSafely(text) {
+  if (typeof text !== 'string') return null;
+  const sanitized = text.replace(/\u0000/g, '').trim();
+  if (!sanitized) return null;
+
+  const candidates = [sanitized];
+  const firstBrace = sanitized.indexOf('{');
+  const lastBrace = sanitized.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const sliced = sanitized.slice(firstBrace, lastBrace + 1);
+    if (sliced !== sanitized) candidates.push(sliced);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // Keep trying with the next candidate.
+    }
+  }
+
+  return null;
+}
+
+function decodeBase64ToText(base64Text) {
+  if (typeof base64Text !== 'string' || !base64Text) return '';
+  try {
+    if (typeof atob === 'function') {
+      return atob(base64Text);
+    }
+  } catch {
+    // Fall back to Buffer below.
+  }
+
+  if (typeof Buffer !== 'undefined') {
+    try {
+      return Buffer.from(base64Text, 'base64').toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+}
+
+function normalizeNativeRealtimePayload(payload = {}) {
+  let data = payload?.payload && typeof payload.payload === 'object'
+    ? payload.payload
+    : payload;
+
+  if (typeof data === 'string') {
+    const parsed = parseJsonObjectSafely(data);
+    if (parsed) data = parsed;
+  }
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!data || typeof data !== 'object') break;
+
+    if (data.type === 'raw_json_text' && typeof data.json === 'string') {
+      const parsed = parseJsonObjectSafely(data.json);
+      if (parsed) {
+        data = parsed;
+        continue;
+      }
+    }
+
+    if (data.type === 'raw' && typeof data.dataBase64 === 'string') {
+      const decoded = decodeBase64ToText(data.dataBase64);
+      const parsed = parseJsonObjectSafely(decoded);
+      if (parsed) {
+        data = parsed;
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  if (!data || typeof data !== 'object') return {};
+  return data;
+}
+
 export class GameCenterProvider {
   constructor() {
     this.listeners = new Set();
+    this.realtimeListeners = new Set();
     this.tickTimer = null;
     this.queueStartedAt = null;
     this.matchRequestToken = 0;
     this.nativeMatchStateListener = null;
+    this.nativeMatchDataListener = null;
+    this.nativeMatchPlayerStateListener = null;
     this.authPromise = null;
     this.state = {
       provider: 'gamecenter',
@@ -65,7 +151,8 @@ export class GameCenterProvider {
       platform: 'ios',
       requiresNativeBridge: true,
       supportsGameCenter: true,
-      canUseCustomDisplayName: false
+      canUseCustomDisplayName: false,
+      supportsRealtime: true
     };
   }
 
@@ -84,6 +171,14 @@ export class GameCenterProvider {
     };
   }
 
+  subscribeRealtime(listener) {
+    if (typeof listener !== 'function') return () => {};
+    this.realtimeListeners.add(listener);
+    return () => {
+      this.realtimeListeners.delete(listener);
+    };
+  }
+
   getState() {
     return { ...this.state };
   }
@@ -91,6 +186,10 @@ export class GameCenterProvider {
   emit() {
     const snapshot = this.getState();
     this.listeners.forEach(listener => listener(snapshot));
+  }
+
+  emitRealtime(payload = {}) {
+    this.realtimeListeners.forEach(listener => listener(payload));
   }
 
   async bindNativeListeners() {
@@ -102,6 +201,43 @@ export class GameCenterProvider {
     } catch {
       // Listener is optional for this MVP.
     }
+
+    try {
+      this.nativeMatchDataListener = await GameCenterBridge.addListener('matchData', (payload) => {
+        this.applyNativeMatchData(payload);
+      });
+    } catch {
+      // Listener is optional for this MVP.
+    }
+
+    try {
+      this.nativeMatchPlayerStateListener = await GameCenterBridge.addListener('matchPlayerStateChange', (payload) => {
+        this.applyNativePlayerState(payload);
+      });
+    } catch {
+      // Listener is optional for this MVP.
+    }
+  }
+
+  applyNativeMatchData(payload = {}) {
+    const data = normalizeNativeRealtimePayload(payload);
+
+    this.emitRealtime({
+      ...data,
+      _sourcePlayerId: payload?.fromPlayerId ?? '',
+      _sourceDisplayName: payload?.fromDisplayName ?? ''
+    });
+  }
+
+  applyNativePlayerState(payload = {}) {
+    if (payload?.state !== 'disconnected') return;
+    if (this.state.phase === 'searching' || this.state.phase === 'matched') {
+      this.stopQueueTick();
+      this.state.phase = 'error';
+      this.state.message = '對手已離線。';
+      this.state.errorMessage = 'Game Center 連線中斷。';
+      this.emit();
+    }
   }
 
   applyNativeMatchState(payload = {}) {
@@ -112,7 +248,9 @@ export class GameCenterProvider {
       this.state.phase = 'searching';
       this.state.message = payload.message || '正在搜尋對手...';
       this.state.errorMessage = '';
-      this.state.opponentProfile = null;
+      this.state.opponentProfile = payload.opponentProfile
+        ? resolveOpponentProfile(payload.opponentProfile)
+        : null;
       this.queueStartedAt = Date.now();
       this.startQueueTick();
       this.emit();
@@ -338,6 +476,14 @@ export class GameCenterProvider {
     }
   }
 
+  async sendRealtimeEvent(payload = {}) {
+    if (!payload || typeof payload !== 'object') return;
+    await GameCenterBridge.sendMatchData({
+      payload,
+      reliable: true
+    });
+  }
+
   async onAppPause() {
     if (this.state.phase !== 'searching') return;
     this.syncQueueSeconds();
@@ -357,9 +503,18 @@ export class GameCenterProvider {
   destroy() {
     this.stopQueueTick();
     this.listeners.clear();
+    this.realtimeListeners.clear();
     if (this.nativeMatchStateListener?.remove) {
       void this.nativeMatchStateListener.remove();
     }
     this.nativeMatchStateListener = null;
+    if (this.nativeMatchDataListener?.remove) {
+      void this.nativeMatchDataListener.remove();
+    }
+    this.nativeMatchDataListener = null;
+    if (this.nativeMatchPlayerStateListener?.remove) {
+      void this.nativeMatchPlayerStateListener.remove();
+    }
+    this.nativeMatchPlayerStateListener = null;
   }
 }
