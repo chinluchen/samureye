@@ -4,6 +4,7 @@ import { GAME_CONFIG } from '../data/gameConfig.js';
 import { directions } from '../data/directions.js';
 import { enemySkills } from '../data/enemySkills.js';
 import { runEnemyUltimateEffect, runPlayerUltimateEffect } from '../game/ultimateLogic.js';
+import { triggerHaptic } from '../services/hapticsService.js';
 import { sfx } from '../services/SoundEngine.js';
 import {
   drawSlashLine,
@@ -208,8 +209,7 @@ export function useBattleGame({
 
   function vibrate(pattern) {
     if (!vibrationEnabled.value) return;
-    if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
-    navigator.vibrate(pattern);
+    triggerHaptic(pattern);
   }
 
   function damageEnemy(amount, color = '#ef4444') {
@@ -264,7 +264,7 @@ export function useBattleGame({
     const rect = targetEl ? targetEl.getBoundingClientRect() : null;
 
     damageEnemy(battleStats.targetHitDamage);
-    vibrate(12);
+    vibrate(20);
     sfx.playHit();
 
     if (rect) {

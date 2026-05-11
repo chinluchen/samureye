@@ -222,6 +222,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { App as CapacitorApp } from '@capacitor/app';
 import { GAME_CONFIG } from './data/gameConfig.js';
 import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
@@ -231,6 +232,7 @@ import { useBattleGame } from './composables/useBattleGame.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
 import { sfx } from './services/SoundEngine.js';
 import { createMatchService } from './services/match/MatchService.js';
+import { appStorage } from './services/storage/preferencesStorage.js';
 import CutsceneLayer from './components/CutsceneLayer.vue';
 import GameTarget from './components/GameTarget.vue';
 import HudLayer from './components/HudLayer.vue';
@@ -287,6 +289,7 @@ const studyState = reactive({
 });
 const STUDY_SAVE_KEY = 'samureye.study.v1';
 const ACCOUNT_SAVE_KEY = 'samureye.account.v1';
+const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, ACCOUNT_SAVE_KEY];
 const STUDY_PROFILE_SCHEMA_VERSION = 4;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
@@ -294,6 +297,7 @@ const SKILL_DEFAULT_DAMAGE = 30;
 const PLAYER_TEST_ACCOUNT_KEY = 'player';
 const ADMIN_TEST_ACCOUNT_KEY = 'samureye';
 const stageList = stageConfigs;
+let hasMigratedStorage = false;
 const accountState = reactive({
   name: ''
 });
@@ -765,11 +769,22 @@ function getActiveProfileKey() {
   return `acct:${name}`;
 }
 
-function loadAllStudyProfiles() {
-  if (typeof window === 'undefined') return { version: STUDY_PROFILE_SCHEMA_VERSION, profiles: {} };
+async function ensureStorageReady() {
+  if (hasMigratedStorage) return;
+  hasMigratedStorage = true;
 
   try {
-    const raw = window.localStorage.getItem(STUDY_SAVE_KEY);
+    await appStorage.migrateKeysFromLocalStorage(LEGACY_STORAGE_KEYS);
+  } catch (error) {
+    console.warn('Failed to migrate legacy localStorage data:', error);
+  }
+}
+
+async function loadAllStudyProfiles() {
+  await ensureStorageReady();
+
+  try {
+    const raw = await appStorage.getItem(STUDY_SAVE_KEY);
     if (!raw) return { version: STUDY_PROFILE_SCHEMA_VERSION, profiles: {} };
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return { version: STUDY_PROFILE_SCHEMA_VERSION, profiles: {} };
@@ -810,28 +825,28 @@ function loadAllStudyProfiles() {
   return { version: STUDY_PROFILE_SCHEMA_VERSION, profiles: {} };
 }
 
-function saveAllStudyProfiles(payload) {
-  if (typeof window === 'undefined') return;
+async function saveAllStudyProfiles(payload) {
   try {
-    window.localStorage.setItem(STUDY_SAVE_KEY, JSON.stringify(payload));
+    await appStorage.setItem(STUDY_SAVE_KEY, JSON.stringify(payload));
   } catch (error) {
     console.warn('Failed to save study profiles:', error);
   }
 }
 
-function loadStudyStateForActiveAccount() {
-  const allProfiles = loadAllStudyProfiles();
+async function loadStudyStateForActiveAccount() {
+  const allProfiles = await loadAllStudyProfiles();
   const profileKey = getActiveProfileKey();
   const profileData = allProfiles.profiles[profileKey] ?? buildDefaultStudyData();
   applyStudyData(profileData);
   allProfiles.profiles[profileKey] = normalizeStudyData(profileData);
-  saveAllStudyProfiles(allProfiles);
+  await saveAllStudyProfiles(allProfiles);
 }
 
-function loadAccountState() {
-  if (typeof window === 'undefined') return;
+async function loadAccountState() {
+  await ensureStorageReady();
+
   try {
-    const raw = window.localStorage.getItem(ACCOUNT_SAVE_KEY);
+    const raw = await appStorage.getItem(ACCOUNT_SAVE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.version !== 1 || typeof parsed.data !== 'object') return;
@@ -841,15 +856,14 @@ function loadAccountState() {
   }
 }
 
-function saveStudyStateForActiveAccount() {
-  const allProfiles = loadAllStudyProfiles();
+async function saveStudyStateForActiveAccount() {
+  const allProfiles = await loadAllStudyProfiles();
   const profileKey = getActiveProfileKey();
   allProfiles.profiles[profileKey] = normalizeStudyData(snapshotStudyData());
-  saveAllStudyProfiles(allProfiles);
+  await saveAllStudyProfiles(allProfiles);
 }
 
-function saveAccountState() {
-  if (typeof window === 'undefined') return;
+async function saveAccountState() {
   const payload = {
     version: 1,
     data: {
@@ -857,7 +871,7 @@ function saveAccountState() {
     }
   };
   try {
-    window.localStorage.setItem(ACCOUNT_SAVE_KEY, JSON.stringify(payload));
+    await appStorage.setItem(ACCOUNT_SAVE_KEY, JSON.stringify(payload));
   } catch (error) {
     console.warn('Failed to save account state:', error);
   }
@@ -893,9 +907,9 @@ function resolveBgmSceneId(screen) {
   return SCREEN_BGM_SCENE[screen] ?? 'home';
 }
 
-onMounted(() => {
-  loadAccountState();
-  loadStudyStateForActiveAccount();
+onMounted(async () => {
+  await loadAccountState();
+  await loadStudyStateForActiveAccount();
   const sceneId = resolveBgmSceneId(currentScreen.value);
   sfx.setBgmScene(sceneId);
   setBgmEnabled(bgmEnabled.value);
@@ -941,29 +955,54 @@ onMounted(() => {
   };
 
   const resumeAudioFromForeground = () => {
-    if (document.hidden) return;
     sfx.resumeFromAppForeground();
   };
 
-  const handleVisibilityChange = () => {
-    if (document.hidden) {
-      pauseAudioForBackground();
-      return;
-    }
-    resumeAudioFromForeground();
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  window.addEventListener('pagehide', pauseAudioForBackground);
-  window.addEventListener('blur', pauseAudioForBackground);
-  window.addEventListener('pageshow', resumeAudioFromForeground);
-  window.addEventListener('focus', resumeAudioFromForeground);
+  const lifecycleHandles = [];
+  let fallbackDetach = null;
+  try {
+    lifecycleHandles.push(await CapacitorApp.addListener('pause', pauseAudioForBackground));
+    lifecycleHandles.push(await CapacitorApp.addListener('resume', resumeAudioFromForeground));
+    lifecycleHandles.push(await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) {
+        pauseAudioForBackground();
+        return;
+      }
+      resumeAudioFromForeground();
+    }));
+  } catch (error) {
+    console.warn('Failed to bind Capacitor App lifecycle listeners, falling back to web listeners:', error);
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pauseAudioForBackground();
+        return;
+      }
+      resumeAudioFromForeground();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', pauseAudioForBackground);
+    window.addEventListener('blur', pauseAudioForBackground);
+    window.addEventListener('pageshow', resumeAudioFromForeground);
+    window.addEventListener('focus', resumeAudioFromForeground);
+    fallbackDetach = () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', pauseAudioForBackground);
+      window.removeEventListener('blur', pauseAudioForBackground);
+      window.removeEventListener('pageshow', resumeAudioFromForeground);
+      window.removeEventListener('focus', resumeAudioFromForeground);
+    };
+  }
   detachAppAudioLifecycle = () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('pagehide', pauseAudioForBackground);
-    window.removeEventListener('blur', pauseAudioForBackground);
-    window.removeEventListener('pageshow', resumeAudioFromForeground);
-    window.removeEventListener('focus', resumeAudioFromForeground);
+    while (lifecycleHandles.length > 0) {
+      const handle = lifecycleHandles.pop();
+      if (handle && typeof handle.remove === 'function') {
+        void handle.remove();
+      }
+    }
+    if (typeof fallbackDetach === 'function') {
+      fallbackDetach();
+      fallbackDetach = null;
+    }
   };
 });
 
@@ -979,7 +1018,7 @@ onBeforeUnmount(() => {
 watch(
   studyState,
   () => {
-    saveStudyStateForActiveAccount();
+    void saveStudyStateForActiveAccount();
   },
   { deep: true }
 );
@@ -987,7 +1026,7 @@ watch(
 watch(
   playerConfig,
   () => {
-    saveStudyStateForActiveAccount();
+    void saveStudyStateForActiveAccount();
   },
   { deep: true }
 );
@@ -995,7 +1034,7 @@ watch(
 watch(
   stageProgress,
   () => {
-    saveStudyStateForActiveAccount();
+    void saveStudyStateForActiveAccount();
   },
   { deep: true }
 );
@@ -1003,8 +1042,8 @@ watch(
 watch(
   accountState,
   () => {
-    saveAccountState();
-    loadStudyStateForActiveAccount();
+    void saveAccountState();
+    void loadStudyStateForActiveAccount();
     void matchService.signIn({ displayName: getPreferredDisplayName() });
   },
   { deep: true }

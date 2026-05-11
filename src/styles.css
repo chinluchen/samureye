@@ -257,10 +257,11 @@ button {
 }
 
 .study-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  position: relative;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  min-height: 44px;
 }
 
 .study-back-btn {
@@ -275,11 +276,20 @@ button {
 
 .study-title {
   margin: 0;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 180px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: center;
   font-size: 1.5rem;
   font-weight: 900;
   color: #f8fafc;
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .settings-screen {
@@ -299,19 +309,29 @@ button {
 }
 
 .settings-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  position: relative;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  min-height: 44px;
 }
 
 .settings-title {
   margin: 0;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 180px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: center;
   font-size: 1.5rem;
   font-weight: 900;
   color: #f8fafc;
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .settings-account {
@@ -1021,7 +1041,7 @@ button {
 .tutorial-guide-layer {
   position: absolute;
   inset: 0;
-  z-index: 2050;
+  z-index: 2300;
   pointer-events: none;
 }
 

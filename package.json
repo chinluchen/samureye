@@ -10,9 +10,12 @@
     "sync:ios": "rm -rf dist && npm run build && npx cap sync ios"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
     "@capacitor/cli": "^7.6.2",
     "@capacitor/core": "^8.3.1",
+    "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "^8.3.1",
+    "@capacitor/preferences": "^8.0.1",
     "@vitejs/plugin-vue": "^5.2.4",
     "gsap": "^3.12.7",
     "vite": "^6.3.4",
