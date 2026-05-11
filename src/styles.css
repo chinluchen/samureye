@@ -1705,6 +1705,10 @@ button {
   color: #4ade80;
 }
 
+.draw-title {
+  color: #facc15;
+}
+
 .lose-title {
   color: #ef4444;
   transform: translateY(-30px);

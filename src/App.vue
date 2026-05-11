@@ -97,8 +97,11 @@
         v-if="gameState === 'gameResult'"
         :player-hp="playerHp"
         :opponent-hp="opponentHp"
+        :outcome="currentBattleOutcome"
+        :is-pvp="isCurrentBattlePvP"
         @play-again="initGame"
         @open-stage-select="goStageSelectFromResult"
+        @open-matchmaking="goMatchmakingFromResult"
         @go-home="returnToHome"
       />
 
@@ -418,6 +421,11 @@ const selectedCharacter = computed(() => {
 });
 const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
+const currentBattleOutcome = computed(() => {
+  if (playerHp.value > opponentHp.value) return 'win';
+  if (playerHp.value < opponentHp.value) return 'lose';
+  return isCurrentBattlePvP.value ? 'draw' : 'lose';
+});
 const isTutorialUntimed = computed(() => isTutorialStage.value);
 const tutorialHitProgress = computed(() => {
   return Math.max(0, playerTotalHits.value - tutorialState.hitBaseline);
@@ -1205,7 +1213,10 @@ watch(
   () => {
     void saveAccountState();
     void loadStudyStateForActiveAccount();
-    void matchService.signIn({ displayName: getPreferredDisplayName() });
+    void matchService.signIn({
+      displayName: getPreferredDisplayName(),
+      silent: true
+    });
   },
   { deep: true }
 );
@@ -1255,7 +1266,8 @@ watch(targetTransform, () => {
 
 watch(gameState, (next, prev) => {
   if (prev === 'gameResult' || next !== 'gameResult') return;
-  if (playerHp.value <= opponentHp.value) return;
+  if (isCurrentBattlePvP.value) return;
+  if (currentBattleOutcome.value !== 'win') return;
   if (!stageList.some(stage => stage.id === selectedStageId.value)) return;
   if (stageProgress.clearedStageIds.includes(selectedStageId.value)) return;
   stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, selectedStageId.value];
@@ -1341,6 +1353,16 @@ function goStageSelectFromResult() {
   setPaused(false);
   stopGame();
   currentScreen.value = 'stageSelect';
+}
+
+function goMatchmakingFromResult() {
+  battleSessionMode.value = 'pve';
+  resetTutorialState();
+  isBattleMenuOpen.value = false;
+  battleMenuView.value = 'main';
+  setPaused(false);
+  stopGame();
+  currentScreen.value = 'matchmaking';
 }
 
 function selectStageAndStart(stageId) {
