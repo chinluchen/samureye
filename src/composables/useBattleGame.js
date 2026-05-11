@@ -465,6 +465,37 @@ export function useBattleGame({
     }
   }
 
+  async function playSkillCinematic({
+    skillName = '',
+    isEnemyTurn: enemyTurn = false,
+    casterSide = 'opponent'
+  } = {}, token = runToken.value) {
+    if (!isRunActive(token)) return false;
+    const shouldMoveLocalAvatar = casterSide === 'local-player';
+
+    if (shouldMoveLocalAvatar) {
+      await animatePlayerAvatarOut(token);
+      if (!isRunActive(token)) return false;
+    }
+
+    await playCutscene(skillName, Boolean(enemyTurn), token);
+    return isRunActive(token);
+  }
+
+  async function finishSkillCinematic({
+    casterSide = 'opponent'
+  } = {}, token = runToken.value) {
+    if (!isRunActive(token)) return false;
+    const shouldMoveLocalAvatar = casterSide === 'local-player';
+
+    if (shouldMoveLocalAvatar) {
+      await animatePlayerAvatarBack(token);
+      if (!isRunActive(token)) return false;
+    }
+
+    return true;
+  }
+
   async function useSkill(skill, options = {}) {
     if (isPaused.value || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
     if (playerDebuff.value === 'cataract') return;
@@ -476,11 +507,12 @@ export function useBattleGame({
 
     try {
       skillPoints.value -= skill.cost;
-      await animatePlayerAvatarOut(token);
-      if (!isRunActive(token)) return;
-
-      await playCutscene(skill.name, false, token);
-      if (!isRunActive(token)) return;
+      const cinematicAlive = await playSkillCinematic({
+        skillName: skill.name,
+        isEnemyTurn: false,
+        casterSide: 'local-player'
+      }, token);
+      if (!cinematicAlive) return;
       sfx.playSkillCast(skill);
 
       const skillCastMeta = options && typeof options === 'object' && options.syncMeta && typeof options.syncMeta === 'object'
@@ -508,8 +540,10 @@ export function useBattleGame({
       });
       if (!playerUltimateAlive) return;
 
-      await animatePlayerAvatarBack(token);
-      if (!isRunActive(token)) return;
+      const cinematicRestoreAlive = await finishSkillCinematic({
+        casterSide: 'local-player'
+      }, token);
+      if (!cinematicRestoreAlive) return;
 
       if (gameState.value !== 'finishing') {
         gameState.value = 'playing';
@@ -581,8 +615,12 @@ export function useBattleGame({
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
     try {
 
-      await playCutscene(skill.name, true, token);
-      if (!isRunActive(token)) return;
+      const cinematicAlive = await playSkillCinematic({
+        skillName: skill.name,
+        isEnemyTurn: true,
+        casterSide: 'opponent'
+      }, token);
+      if (!cinematicAlive) return;
       sfx.playSkillCast(skill);
 
       const enemyUltimateAlive = await runEnemyUltimateEffect(skill, token, {
@@ -834,6 +872,8 @@ export function useBattleGame({
     setSfxEnabled,
     setBgmEnabled,
     setVibrationEnabled,
+    playSkillCinematic,
+    finishSkillCinematic,
     applyOpponentDamage,
     applyRemoteDamage,
     forceOpponentDefeat

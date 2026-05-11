@@ -9,9 +9,10 @@
 </template>
 
 <script setup>
+import { watch } from 'vue';
 import samuFrontPortraitUrl from '../image/characters/samu-q-front.runtime.webp';
 
-defineProps({
+const props = defineProps({
   isEnemyTurn: {
     type: Boolean,
     required: true
@@ -19,6 +20,19 @@ defineProps({
   skillName: {
     type: String,
     default: ''
+  },
+  animationMeta: {
+    type: Object,
+    default: null
   }
 });
+
+watch(
+  () => props.animationMeta,
+  (value) => {
+    if (!value) return;
+    console.info(`[PvP Sync] SkillAnimationLayer render castId=${value.castId} skillId=${value.skillId} animationKey=${value.animationKey} role=${value.role}`);
+  },
+  { immediate: true, deep: true }
+);
 </script>

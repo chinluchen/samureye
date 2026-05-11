@@ -51,10 +51,7 @@
         <CutsceneLayer
           :is-enemy-turn="isEnemyTurn"
           :skill-name="cutsceneSkillName"
-        />
-
-        <SkillAnimationLayer
-          :animation="activeSkillAnimation"
+          :animation-meta="activeSkillAnimation"
         />
 
         <div id="cataract-mist-layer">
@@ -255,7 +252,6 @@ import SkillLoadoutScreen from './components/SkillLoadoutScreen.vue';
 import StageSelectScreen from './components/StageSelectScreen.vue';
 import LeaderboardScreen from './components/LeaderboardScreen.vue';
 import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
-import SkillAnimationLayer from './components/SkillAnimationLayer.vue';
 
 const currentScreen = ref('home');
 const isBattleMenuOpen = ref(false);
@@ -439,6 +435,8 @@ const {
   setSfxEnabled: setSfxEnabledState,
   setBgmEnabled: setBgmEnabledState,
   setVibrationEnabled: setVibrationEnabledState,
+  playSkillCinematic,
+  finishSkillCinematic,
   applyOpponentDamage,
   applyRemoteDamage,
   forceOpponentDefeat
@@ -1095,9 +1093,10 @@ function resetSkillCastSyncState() {
   queuedSkillCasts.length = 0;
   queuedSkillCastIds.clear();
   appliedSkillCastDamageIds.clear();
+  const castToClear = activeSkillCast;
   activeSkillCast = null;
   awaitingLocalSkillCastAck = false;
-  activeSkillAnimation.value = null;
+  void clearSkillAnimation('reset_state', castToClear);
 }
 
 function resolveSkillDefinitionById(skillId = '') {
@@ -1308,7 +1307,7 @@ function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
   }
 }
 
-function playSkillAnimation(cast = null) {
+async function playSkillAnimation(cast = null) {
   if (!cast || typeof cast !== 'object') return;
   console.info(`[PvP Sync] 準備播放技能動畫 castId=${cast.castId} skillId=${cast.skillId} animationKey=${cast.animationKey} role=${cast.localRole}`);
   const effects = Array.isArray(cast?.skillDefinition?.visualEffects) ? cast.skillDefinition.visualEffects : [];
@@ -1324,10 +1323,22 @@ function playSkillAnimation(cast = null) {
   };
   activeSkillAnimation.value = animationPayload;
   console.info(`[PvP Sync] activeSkillAnimation已設定 castId=${animationPayload.castId} animationKey=${animationPayload.animationKey} role=${animationPayload.role}`);
+
+  const isLocalCaster = cast.localRole === 'caster';
+  await playSkillCinematic({
+    skillName: cast.skillName,
+    isEnemyTurn: !isLocalCaster,
+    casterSide: isLocalCaster ? 'local-player' : 'opponent'
+  });
 }
 
-function clearSkillAnimation(reason = 'unknown') {
-  if (!activeSkillAnimation.value) return;
+async function clearSkillAnimation(reason = 'unknown', cast = null) {
+  const animation = activeSkillAnimation.value;
+  const role = cast?.localRole ?? animation?.role ?? '';
+  if (role === 'caster') {
+    await finishSkillCinematic({ casterSide: 'local-player' });
+  }
+  if (!animation) return;
   activeSkillAnimation.value = null;
   console.info(`[PvP Sync] 技能動畫已清除 reason=${reason}`);
 }
@@ -1360,10 +1371,7 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   }
 
   setPaused(true);
-  isEnemyTurn.value = nextCast.localRole !== 'caster';
-  cutsceneSkillName.value = nextCast.skillName;
-  gameState.value = 'skillCutscene';
-  playSkillAnimation(nextCast);
+  void playSkillAnimation(nextCast);
 
   clearSkillCastSyncTimers();
   const nowMs = Date.now();
@@ -1389,7 +1397,7 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
       gameState.value = 'playing';
     }
     setPaused(false);
-    clearSkillAnimation('skill_cast_resume');
+    void clearSkillAnimation('skill_cast_resume', nextCast);
     console.info(`[PvP Sync] skill_cast 結束 castId=${nextCast.castId}，恢復倒數`);
     activeSkillCast = null;
     tryStartQueuedSkillCast('next_cast');
@@ -1825,9 +1833,10 @@ function handlePvpRealtimeEvent(packet = {}) {
     clearSkillCastSyncTimers();
     queuedSkillCasts.length = 0;
     queuedSkillCastIds.clear();
+    const castToClear = activeSkillCast;
     activeSkillCast = null;
     awaitingLocalSkillCastAck = false;
-    clearSkillAnimation('battle_end');
+    void clearSkillAnimation('battle_end', castToClear);
     setPaused(false);
     if (gameState.value !== 'gameResult') {
       gameState.value = 'gameResult';
