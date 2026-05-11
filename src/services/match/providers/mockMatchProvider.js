@@ -8,6 +8,7 @@ export class MockMatchProvider {
     this.searchTimer = null;
     this.tickTimer = null;
     this.queueStartedAt = null;
+    this.matchReadyAt = null;
     this.state = {
       provider: 'mock',
       phase: 'idle',
@@ -82,6 +83,8 @@ export class MockMatchProvider {
     }
 
     this.queueStartedAt = Date.now();
+    const matchDelayMs = 4200 + Math.floor(Math.random() * 2600);
+    this.matchReadyAt = this.queueStartedAt + matchDelayMs;
     this.state.phase = 'searching';
     this.state.message = '正在搜尋對手...';
     this.state.opponentProfile = null;
@@ -89,38 +92,83 @@ export class MockMatchProvider {
     this.state.queueSeconds = 0;
     this.emit();
 
-    this.clearTimers();
-    this.tickTimer = setInterval(() => {
-      if (!this.queueStartedAt) return;
-      this.state.queueSeconds = Math.max(0, Math.floor((Date.now() - this.queueStartedAt) / 1000));
-      this.emit();
-    }, 250);
-
-    this.searchTimer = setTimeout(() => {
-      const opponentNames = ['Master HOU', 'LensRider', 'Dr. Retina', 'FocusFox', 'Astig Ace'];
-      this.state.phase = 'matched';
-      this.state.message = '配對成功，準備進入對戰。';
-      this.state.opponentProfile = {
-        id: `mock-opponent-${Math.floor(Math.random() * 100000)}`,
-        gameCenterId: null,
-        displayName: randomFrom(opponentNames),
-        avatarEmoji: '🥷'
-      };
-      this.clearTimers();
-      this.emit();
-    }, 4200 + Math.floor(Math.random() * 2600));
+    this.startSearchingTimers();
   }
 
   async cancelMatchmaking() {
     if (this.state.phase !== 'searching') return;
-    this.clearTimers();
+    this.clearRuntimeTimers();
+    this.queueStartedAt = null;
+    this.matchReadyAt = null;
     this.state.phase = 'idle';
     this.state.message = '已取消配對。';
     this.state.queueSeconds = 0;
     this.emit();
   }
 
-  clearTimers() {
+  async onAppPause() {
+    if (this.state.phase !== 'searching') return;
+    this.syncQueueSeconds();
+    this.clearRuntimeTimers();
+    this.state.message = '背景中，返回前景後繼續配對。';
+    this.emit();
+  }
+
+  async onAppResume() {
+    if (this.state.phase !== 'searching') return;
+    this.syncQueueSeconds();
+    if (this.matchReadyAt && Date.now() >= this.matchReadyAt) {
+      this.completeMatchmaking();
+      return;
+    }
+
+    this.state.message = '正在搜尋對手...';
+    this.startSearchingTimers();
+    this.emit();
+  }
+
+  startSearchingTimers() {
+    this.clearRuntimeTimers();
+
+    this.tickTimer = setInterval(() => {
+      if (this.state.phase !== 'searching') return;
+      this.syncQueueSeconds();
+      this.emit();
+    }, 250);
+
+    const remainingMs = Math.max(0, Number(this.matchReadyAt ?? Date.now()) - Date.now());
+    this.searchTimer = setTimeout(() => {
+      if (this.state.phase !== 'searching') return;
+      this.completeMatchmaking();
+    }, remainingMs);
+  }
+
+  completeMatchmaking() {
+    const opponentNames = ['Master HOU', 'LensRider', 'Dr. Retina', 'FocusFox', 'Astig Ace'];
+    this.syncQueueSeconds();
+    this.state.phase = 'matched';
+    this.state.message = '配對成功，準備進入對戰。';
+    this.state.opponentProfile = {
+      id: `mock-opponent-${Math.floor(Math.random() * 100000)}`,
+      gameCenterId: null,
+      displayName: randomFrom(opponentNames),
+      avatarEmoji: '🥷'
+    };
+    this.clearRuntimeTimers();
+    this.queueStartedAt = null;
+    this.matchReadyAt = null;
+    this.emit();
+  }
+
+  syncQueueSeconds() {
+    if (!this.queueStartedAt) {
+      this.state.queueSeconds = 0;
+      return;
+    }
+    this.state.queueSeconds = Math.max(0, Math.floor((Date.now() - this.queueStartedAt) / 1000));
+  }
+
+  clearRuntimeTimers() {
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -129,11 +177,12 @@ export class MockMatchProvider {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    this.queueStartedAt = null;
   }
 
   destroy() {
-    this.clearTimers();
+    this.clearRuntimeTimers();
+    this.queueStartedAt = null;
+    this.matchReadyAt = null;
     this.listeners.clear();
   }
 }

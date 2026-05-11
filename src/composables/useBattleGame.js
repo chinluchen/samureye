@@ -696,13 +696,20 @@ export function useBattleGame({
   function setSfxEnabled(enabled) {
     const normalized = Boolean(enabled);
     sfxEnabled.value = normalized;
-    sfx.setEnabled(normalized);
+    sfx.setSfxEnabled(normalized);
   }
 
   function setBgmEnabled(enabled) {
     const normalized = Boolean(enabled);
     bgmEnabled.value = normalized;
-    sfx.setBgmEnabled(normalized);
+    if (normalized) {
+      // On iOS WKWebView, toggling BGM back on should actively re-init + resume.
+      sfx.init();
+      sfx.setBgmEnabled(true);
+      sfx.ensureBgmRunning();
+      return;
+    }
+    sfx.setBgmEnabled(false);
   }
 
   function setVibrationEnabled(enabled) {

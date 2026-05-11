@@ -16,6 +16,7 @@ export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.enabled = true;
+    this.sfxEnabled = true;
     this.masterVolume = 1;
     this.sfxVolume = 1;
     this.bgmEnabled = false;
@@ -166,7 +167,7 @@ export class SoundEngine {
   }
 
   playSample(sampleId, baseGain = 1) {
-    if (!this.enabled || this.sfxVolume <= 0) return false;
+    if (!this.canPlaySfx()) return false;
     this.init();
 
     const sample = this.sampleBuffers[sampleId];
@@ -194,6 +195,10 @@ export class SoundEngine {
     this.refreshBgmGain();
   }
 
+  setSfxEnabled(enabled) {
+    this.sfxEnabled = Boolean(enabled);
+  }
+
   setMasterVolume(volume) {
     this.masterVolume = Math.max(0, Math.min(1, Number(volume)));
     if (this.masterVolume > 0 && this.enabled && this.bgmEnabled && !this.hasActiveBgm()) {
@@ -207,10 +212,22 @@ export class SoundEngine {
   }
 
   setBgmEnabled(enabled) {
-    this.bgmEnabled = Boolean(enabled);
+    const nextEnabled = Boolean(enabled);
+    const wasEnabled = this.bgmEnabled;
+    this.bgmEnabled = nextEnabled;
 
     if (this.bgmEnabled) {
-      this.startBgm();
+      this.bgmPausedForAppState = false;
+      // If we are toggling from OFF->ON, rebuild the BGM chain explicitly.
+      // This avoids stale/silent nodes on some iOS WebView resume paths.
+      if (!wasEnabled && this.hasActiveBgm()) {
+        this.stopBgm();
+      }
+      if (this.hasActiveBgm()) {
+        this.refreshBgmGain();
+      } else {
+        this.startBgm();
+      }
       return;
     }
 
@@ -254,6 +271,10 @@ export class SoundEngine {
 
   getSfxGain(base) {
     return base * this.sfxVolume;
+  }
+
+  canPlaySfx() {
+    return this.enabled && this.sfxEnabled && this.sfxVolume > 0;
   }
 
   startBgm() {
@@ -409,7 +430,7 @@ export class SoundEngine {
   }
 
   playSlashSynth() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
 
     this.init();
 
@@ -439,7 +460,7 @@ export class SoundEngine {
   }
 
   playHit() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
 
     this.init();
 
@@ -459,7 +480,7 @@ export class SoundEngine {
   }
 
   playUlt() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
 
     this.init();
 
@@ -522,7 +543,7 @@ export class SoundEngine {
   }
 
   playFlash() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -539,7 +560,7 @@ export class SoundEngine {
   }
 
   playFocus() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -556,7 +577,7 @@ export class SoundEngine {
   }
 
   playShield() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -573,7 +594,7 @@ export class SoundEngine {
   }
 
   playHeavy() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -590,7 +611,7 @@ export class SoundEngine {
   }
 
   playBurst() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -607,7 +628,7 @@ export class SoundEngine {
   }
 
   playDark() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const osc = this.ctx.createOscillator();
@@ -624,7 +645,7 @@ export class SoundEngine {
   }
 
   playSplit() {
-    if (!this.enabled || this.sfxVolume <= 0) return;
+    if (!this.canPlaySfx()) return;
     this.init();
 
     const oscA = this.ctx.createOscillator();

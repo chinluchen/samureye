@@ -105,6 +105,7 @@
       <BattleMenu
         v-if="isBattleMenuOpen"
         :view="battleMenuView"
+        :is-pvp="isCurrentBattlePvP"
         :volume="audioVolume"
         :sfx-volume="sfxVolume"
         :sfx-enabled="sfxEnabled"
@@ -251,6 +252,7 @@ import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
 const currentScreen = ref('home');
 const isBattleMenuOpen = ref(false);
 const battleMenuView = ref('main');
+const battleSessionMode = ref('pve');
 const matchService = createMatchService();
 const matchCapabilities = reactive({
   provider: matchService.providerName,
@@ -276,6 +278,8 @@ const matchmakingStatus = reactive({
 let unsubscribeMatchStatus = null;
 let detachAudioUnlock = null;
 let detachAppAudioLifecycle = null;
+let appIsInBackground = false;
+let shouldAutoResumeBattleAfterForeground = false;
 const studyState = reactive({
   knowledgePoints: 0,
   answered: 0,
@@ -289,8 +293,10 @@ const studyState = reactive({
 });
 const STUDY_SAVE_KEY = 'samureye.study.v1';
 const ACCOUNT_SAVE_KEY = 'samureye.account.v1';
-const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, ACCOUNT_SAVE_KEY];
+const SETTINGS_SAVE_KEY = 'samureye.settings.v1';
+const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, ACCOUNT_SAVE_KEY, SETTINGS_SAVE_KEY];
 const STUDY_PROFILE_SCHEMA_VERSION = 4;
+const SETTINGS_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
@@ -298,6 +304,7 @@ const PLAYER_TEST_ACCOUNT_KEY = 'player';
 const ADMIN_TEST_ACCOUNT_KEY = 'samureye';
 const stageList = stageConfigs;
 let hasMigratedStorage = false;
+let hasHydratedRuntimeSettings = false;
 const accountState = reactive({
   name: ''
 });
@@ -399,17 +406,18 @@ const {
   initGame,
   stopGame,
   setPaused,
-  setAudioVolume,
-  setSfxVolume,
-  setSfxEnabled,
-  setBgmEnabled,
-  setVibrationEnabled
+  setAudioVolume: setAudioVolumeState,
+  setSfxVolume: setSfxVolumeState,
+  setSfxEnabled: setSfxEnabledState,
+  setBgmEnabled: setBgmEnabledState,
+  setVibrationEnabled: setVibrationEnabledState
 } = game;
 
 const selectedCharacter = computed(() => {
   return characters.find(item => item.id === playerConfig.characterId) ?? characters[0];
 });
 const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
+const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
 const isTutorialUntimed = computed(() => isTutorialStage.value);
 const tutorialHitProgress = computed(() => {
   return Math.max(0, playerTotalHits.value - tutorialState.hitBaseline);
@@ -667,6 +675,13 @@ function sanitizeNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function sanitizeBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return fallback;
+}
+
 function normalizeTrack(rawTrack = {}) {
   return {
     level: Math.max(0, Math.floor(sanitizeNumber(rawTrack.level, 0))),
@@ -761,6 +776,97 @@ function snapshotStudyData() {
       clearedStageIds: stageProgress.clearedStageIds
     }
   };
+}
+
+function normalizeRuntimeSettings(rawData = {}) {
+  const data = rawData ?? {};
+  return {
+    audioVolume: Math.max(0, Math.min(1, sanitizeNumber(data.audioVolume, audioVolume.value))),
+    sfxVolume: Math.max(0, Math.min(1, sanitizeNumber(data.sfxVolume, sfxVolume.value))),
+    sfxEnabled: sanitizeBoolean(data.sfxEnabled, sfxEnabled.value),
+    bgmEnabled: sanitizeBoolean(data.bgmEnabled, bgmEnabled.value),
+    vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value)
+  };
+}
+
+function snapshotRuntimeSettings() {
+  return {
+    audioVolume: audioVolume.value,
+    sfxVolume: sfxVolume.value,
+    sfxEnabled: sfxEnabled.value,
+    bgmEnabled: bgmEnabled.value,
+    vibrationEnabled: vibrationEnabled.value
+  };
+}
+
+function persistRuntimeSettingsIfReady() {
+  if (!hasHydratedRuntimeSettings) return;
+  void saveRuntimeSettings();
+}
+
+function setAudioVolume(volume) {
+  setAudioVolumeState(volume);
+  persistRuntimeSettingsIfReady();
+}
+
+function setSfxVolume(volume) {
+  setSfxVolumeState(volume);
+  persistRuntimeSettingsIfReady();
+}
+
+function setSfxEnabled(enabled) {
+  setSfxEnabledState(enabled);
+  persistRuntimeSettingsIfReady();
+}
+
+function setBgmEnabled(enabled) {
+  setBgmEnabledState(enabled);
+  persistRuntimeSettingsIfReady();
+}
+
+function setVibrationEnabled(enabled) {
+  setVibrationEnabledState(enabled);
+  persistRuntimeSettingsIfReady();
+}
+
+async function loadRuntimeSettings() {
+  await ensureStorageReady();
+
+  try {
+    const raw = await appStorage.getItem(SETTINGS_SAVE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+
+    // Backward compatibility:
+    // - v1: { version: 1, data: {...} }
+    // - legacy: {...} (direct payload)
+    const rawSettingsData = (parsed.version === SETTINGS_SCHEMA_VERSION && typeof parsed.data === 'object' && parsed.data)
+      ? parsed.data
+      : parsed;
+
+    const normalized = normalizeRuntimeSettings(rawSettingsData);
+    setAudioVolume(normalized.audioVolume);
+    setSfxVolume(normalized.sfxVolume);
+    setSfxEnabled(normalized.sfxEnabled);
+    setBgmEnabled(normalized.bgmEnabled);
+    setVibrationEnabled(normalized.vibrationEnabled);
+  } catch (error) {
+    console.warn('Failed to load runtime settings:', error);
+  }
+}
+
+async function saveRuntimeSettings() {
+  const payload = {
+    version: SETTINGS_SCHEMA_VERSION,
+    data: snapshotRuntimeSettings()
+  };
+  try {
+    await appStorage.setItem(SETTINGS_SAVE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to save runtime settings:', error);
+  }
 }
 
 function getActiveProfileKey() {
@@ -907,9 +1013,76 @@ function resolveBgmSceneId(screen) {
   return SCREEN_BGM_SCENE[screen] ?? 'home';
 }
 
+function forfeitActivePvpBattleAndExit(destination = 'home') {
+  if (currentScreen.value !== 'battle') return false;
+  if (!isCurrentBattlePvP.value) return false;
+  if (gameState.value === 'gameResult') return false;
+
+  resetTutorialState();
+  isBattleMenuOpen.value = false;
+  battleMenuView.value = 'main';
+  shouldAutoResumeBattleAfterForeground = false;
+  setPaused(false);
+  stopGame();
+
+  applyMatchStatus({
+    phase: 'idle',
+    message: '你已離開 PvP 對戰，視為投降。',
+    opponentProfile: null,
+    queueSeconds: 0
+  });
+
+  battleSessionMode.value = 'pve';
+  currentScreen.value = destination;
+  return true;
+}
+
+function handleAppBackground() {
+  if (appIsInBackground) return;
+  appIsInBackground = true;
+
+  persistRuntimeSettingsIfReady();
+
+  if (forfeitActivePvpBattleAndExit('home')) {
+    return;
+  }
+
+  sfx.pauseForAppBackground();
+  void matchService.onAppPause();
+
+  const shouldPauseBattle = currentScreen.value === 'battle'
+    && gameState.value === 'playing'
+    && !isPaused.value;
+  shouldAutoResumeBattleAfterForeground = shouldPauseBattle && !isBattleMenuOpen.value;
+
+  if (shouldPauseBattle) {
+    setPaused(true);
+  }
+}
+
+function handleAppForeground() {
+  if (!appIsInBackground) return;
+  appIsInBackground = false;
+
+  sfx.resumeFromAppForeground();
+  void matchService.onAppResume();
+
+  if (
+    shouldAutoResumeBattleAfterForeground
+    && currentScreen.value === 'battle'
+    && gameState.value === 'playing'
+    && !isBattleMenuOpen.value
+  ) {
+    setPaused(false);
+  }
+  shouldAutoResumeBattleAfterForeground = false;
+}
+
 onMounted(async () => {
   await loadAccountState();
   await loadStudyStateForActiveAccount();
+  await loadRuntimeSettings();
+  hasHydratedRuntimeSettings = true;
   const sceneId = resolveBgmSceneId(currentScreen.value);
   sfx.setBgmScene(sceneId);
   setBgmEnabled(bgmEnabled.value);
@@ -934,10 +1107,6 @@ onMounted(async () => {
   const unlockAudio = () => {
     sfx.init();
     if (bgmEnabled.value) sfx.ensureBgmRunning();
-    if (sfx.isContextRunning() && sfx.hasActiveBgm() && typeof detachAudioUnlock === 'function') {
-      detachAudioUnlock();
-      detachAudioUnlock = null;
-    }
   };
 
   const listenerOptions = { passive: true };
@@ -950,46 +1119,38 @@ onMounted(async () => {
     window.removeEventListener('click', unlockAudio, listenerOptions);
   };
 
-  const pauseAudioForBackground = () => {
-    sfx.pauseForAppBackground();
-  };
-
-  const resumeAudioFromForeground = () => {
-    sfx.resumeFromAppForeground();
-  };
-
   const lifecycleHandles = [];
   let fallbackDetach = null;
   try {
-    lifecycleHandles.push(await CapacitorApp.addListener('pause', pauseAudioForBackground));
-    lifecycleHandles.push(await CapacitorApp.addListener('resume', resumeAudioFromForeground));
+    lifecycleHandles.push(await CapacitorApp.addListener('pause', handleAppBackground));
+    lifecycleHandles.push(await CapacitorApp.addListener('resume', handleAppForeground));
     lifecycleHandles.push(await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) {
-        pauseAudioForBackground();
+        handleAppBackground();
         return;
       }
-      resumeAudioFromForeground();
+      handleAppForeground();
     }));
   } catch (error) {
     console.warn('Failed to bind Capacitor App lifecycle listeners, falling back to web listeners:', error);
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        pauseAudioForBackground();
+        handleAppBackground();
         return;
       }
-      resumeAudioFromForeground();
+      handleAppForeground();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', pauseAudioForBackground);
-    window.addEventListener('blur', pauseAudioForBackground);
-    window.addEventListener('pageshow', resumeAudioFromForeground);
-    window.addEventListener('focus', resumeAudioFromForeground);
+    window.addEventListener('pagehide', handleAppBackground);
+    window.addEventListener('blur', handleAppBackground);
+    window.addEventListener('pageshow', handleAppForeground);
+    window.addEventListener('focus', handleAppForeground);
     fallbackDetach = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', pauseAudioForBackground);
-      window.removeEventListener('blur', pauseAudioForBackground);
-      window.removeEventListener('pageshow', resumeAudioFromForeground);
-      window.removeEventListener('focus', resumeAudioFromForeground);
+      window.removeEventListener('pagehide', handleAppBackground);
+      window.removeEventListener('blur', handleAppBackground);
+      window.removeEventListener('pageshow', handleAppForeground);
+      window.removeEventListener('focus', handleAppForeground);
     };
   }
   detachAppAudioLifecycle = () => {
@@ -1110,6 +1271,17 @@ watch(
 );
 
 function startBattle() {
+  battleSessionMode.value = 'pve';
+  resetTutorialState();
+  currentScreen.value = 'battle';
+  isBattleMenuOpen.value = false;
+  battleMenuView.value = 'main';
+  setPaused(false);
+  initGame();
+}
+
+function startPvpBattle() {
+  battleSessionMode.value = 'pvp';
   resetTutorialState();
   currentScreen.value = 'battle';
   isBattleMenuOpen.value = false;
@@ -1150,7 +1322,7 @@ async function goHomeFromMatchmaking() {
 function startMatchedBattlePreview() {
   if (matchmakingStatus.phase !== 'matched') return;
   selectedStageId.value = STAGE_IDS.STAGE_02;
-  startBattle();
+  startPvpBattle();
 }
 
 function openStageSelect() {
@@ -1162,6 +1334,7 @@ function goHomeFromStageSelect() {
 }
 
 function goStageSelectFromResult() {
+  battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
@@ -1180,13 +1353,17 @@ function selectStageAndStart(stageId) {
 function openBattleMenu() {
   isBattleMenuOpen.value = true;
   battleMenuView.value = 'main';
-  setPaused(true);
+  if (!isCurrentBattlePvP.value) {
+    setPaused(true);
+  }
 }
 
 function closeBattleMenu() {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
-  setPaused(false);
+  if (!isCurrentBattlePvP.value) {
+    setPaused(false);
+  }
 }
 
 function openMenuSettings() {
@@ -1198,12 +1375,15 @@ function backToMainMenuView() {
 }
 
 function restartBattleFromMenu() {
+  if (forfeitActivePvpBattleAndExit('home')) return;
   resetTutorialState();
   closeBattleMenu();
   initGame();
 }
 
 function returnToHome() {
+  if (forfeitActivePvpBattleAndExit('home')) return;
+  battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
@@ -1296,7 +1476,7 @@ function closeAccountDialog() {
   accountInputName.value = '';
 }
 
-function confirmAccountDialog() {
+async function confirmAccountDialog() {
   if (accountDialogMode.value === 'login') {
     const name = (accountInputName.value || '').trim();
     if (!name) return;
@@ -1310,10 +1490,10 @@ function confirmAccountDialog() {
     return;
   }
 
-  const allProfiles = loadAllStudyProfiles();
+  const allProfiles = await loadAllStudyProfiles();
   const profileKey = getActiveProfileKey();
   delete allProfiles.profiles[profileKey];
-  saveAllStudyProfiles(allProfiles);
+  await saveAllStudyProfiles(allProfiles);
   accountState.name = '';
   closeAccountDialog();
 }

@@ -4,8 +4,10 @@
       <h2 class="battle-menu-title">戰鬥選單</h2>
 
       <template v-if="view === 'main'">
-        <button type="button" class="battle-menu-button" @click="$emit('go-home')">回主選單</button>
-        <button type="button" class="battle-menu-button" @click="$emit('restart')">重新開始</button>
+        <button type="button" class="battle-menu-button" @click="$emit('go-home')">
+          {{ isPvp ? '投降離開' : '回主選單' }}
+        </button>
+        <button v-if="!isPvp" type="button" class="battle-menu-button" @click="$emit('restart')">重新開始</button>
         <button type="button" class="battle-menu-button" @click="$emit('open-settings')">設定</button>
         <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('close')">返回</button>
       </template>
@@ -85,6 +87,10 @@ defineProps({
   view: {
     type: String,
     required: true
+  },
+  isPvp: {
+    type: Boolean,
+    default: false
   },
   volume: {
     type: Number,

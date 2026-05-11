@@ -26,6 +26,8 @@ export function createMatchService() {
     signIn: (payload = {}) => provider.signIn(payload),
     startMatchmaking: (payload = {}) => provider.startMatchmaking(payload),
     cancelMatchmaking: () => provider.cancelMatchmaking(),
+    onAppPause: () => provider.onAppPause?.(),
+    onAppResume: () => provider.onAppResume?.(),
     destroy: () => provider.destroy(),
     getCapabilities: () => provider.getCapabilities()
   };

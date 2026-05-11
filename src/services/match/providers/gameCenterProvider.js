@@ -70,6 +70,14 @@ export class GameCenterProvider {
     this.emit();
   }
 
+  async onAppPause() {
+    // Placeholder for future native bridge. Keep current state unchanged.
+  }
+
+  async onAppResume() {
+    // Placeholder for future native bridge. Keep current state unchanged.
+  }
+
   destroy() {
     this.listeners.clear();
   }
