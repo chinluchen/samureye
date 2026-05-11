@@ -218,15 +218,21 @@ export function useBattleGame({
     triggerHaptic(pattern);
   }
 
-  function damageEnemy(amount, color = '#ef4444') {
+  function damageEnemy(amount, color = '#ef4444', meta = null) {
     const damage = Math.max(0, Number(amount));
     if (damage <= 0) return;
     enemyHp.value = Math.max(0, enemyHp.value - damage);
     showDamagePopup(-damage, false, color, { finishing: isFinishing() });
     if (typeof onLocalAttack === 'function') {
+      const source = typeof meta?.source === 'string' ? meta.source : 'slash';
+      const skillId = typeof meta?.skillId === 'string' ? meta.skillId : '';
+      const castId = typeof meta?.castId === 'string' ? meta.castId : '';
       onLocalAttack({
         type: 'damage',
-        amount: damage
+        amount: damage,
+        source,
+        skillId,
+        castId
       });
     }
   }
@@ -277,7 +283,7 @@ export function useBattleGame({
     const targetEl = document.getElementById('target-anchor');
     const rect = targetEl ? targetEl.getBoundingClientRect() : null;
 
-    damageEnemy(battleStats.targetHitDamage);
+    damageEnemy(battleStats.targetHitDamage, '#ef4444', { source: 'slash' });
     vibrate(20);
     sfx.playHit();
 
@@ -459,7 +465,7 @@ export function useBattleGame({
     }
   }
 
-  async function useSkill(skill) {
+  async function useSkill(skill, options = {}) {
     if (isPaused.value || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
     if (playerDebuff.value === 'cataract') return;
     if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return;
@@ -477,16 +483,28 @@ export function useBattleGame({
       if (!isRunActive(token)) return;
       sfx.playSkillCast(skill);
 
+      const skillCastMeta = options && typeof options === 'object' && options.syncMeta && typeof options.syncMeta === 'object'
+        ? options.syncMeta
+        : null;
+      const skillDamageMeta = {
+        source: 'skill',
+        skillId: skill.id,
+        castId: typeof skillCastMeta?.castId === 'string' ? skillCastMeta.castId : ''
+      };
+      const damageEnemyFromSkill = (amount, color = '#ef4444') => {
+        damageEnemy(amount, color, skillDamageMeta);
+      };
+
       const playerUltimateAlive = await runPlayerUltimateEffect(skill, token, {
         enemyDebuff,
-        damageEnemy,
+        damageEnemy: damageEnemyFromSkill,
         triggerImpactShake,
         vibrate,
         sfx,
         waitForRun,
         scheduleTimeout,
         isRunActive,
-        runAstigmatismSlash
+        runAstigmatismSlash: (nextToken) => runAstigmatismSlash(nextToken, damageEnemyFromSkill)
       });
       if (!playerUltimateAlive) return;
 
@@ -510,7 +528,7 @@ export function useBattleGame({
     }
   }
 
-  async function runAstigmatismSlash(token) {
+  async function runAstigmatismSlash(token, damageEnemyFn = damageEnemy) {
     await new Promise(resolve => {
       let count = 0;
       const interval = scheduleInterval(() => {
@@ -523,7 +541,7 @@ export function useBattleGame({
 
         sfx.playSlash();
         sfx.playHit();
-        damageEnemy(5, '#facc15');
+        damageEnemyFn(5, '#facc15');
         const centerX = Math.random() * window.innerWidth;
         const centerY = Math.random() * window.innerHeight;
         const angle = Math.random() * Math.PI * 2;
@@ -745,6 +763,20 @@ export function useBattleGame({
     }
   }
 
+  function applyOpponentDamage(amount, color = '#facc15') {
+    if (gameState.value === 'gameResult') return;
+    const damage = Math.max(0, Number(amount));
+    if (damage <= 0) return;
+    enemyHp.value = Math.max(0, enemyHp.value - damage);
+    showDamagePopup(-damage, false, color, { finishing: isFinishing() });
+    triggerImpactShake(Math.random() * 360, 10);
+    vibrate(16);
+    sfx.playHit();
+    if (enemyHp.value <= 0) {
+      triggerSlowMotionFinish();
+    }
+  }
+
   function forceOpponentDefeat() {
     if (gameState.value === 'gameResult') return;
     enemyHp.value = 0;
@@ -802,6 +834,7 @@ export function useBattleGame({
     setSfxEnabled,
     setBgmEnabled,
     setVibrationEnabled,
+    applyOpponentDamage,
     applyRemoteDamage,
     forceOpponentDefeat
   };

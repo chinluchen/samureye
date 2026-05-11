@@ -1253,6 +1253,90 @@ button {
   word-break: break-word;
 }
 
+#skill-animation-layer {
+  z-index: 860;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skill-animation-core {
+  position: relative;
+  width: min(76vw, 360px);
+  height: min(76vw, 360px);
+  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  backdrop-filter: blur(3px);
+}
+
+.skill-animation-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 4px solid rgba(125, 211, 252, 0.75);
+  box-shadow: 0 0 32px rgba(56, 189, 248, 0.45);
+  animation: skill-ring-spin 1.2s linear infinite;
+}
+
+.role-target .skill-animation-ring {
+  border-color: rgba(251, 113, 133, 0.82);
+  box-shadow: 0 0 34px rgba(244, 63, 94, 0.52);
+}
+
+.skill-animation-icon {
+  z-index: 2;
+  font-size: clamp(3.2rem, 12vw, 5.2rem);
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.3));
+  animation: skill-icon-pop 0.42s ease-out;
+}
+
+.skill-animation-label {
+  z-index: 2;
+  text-align: center;
+  color: #f8fafc;
+  text-shadow: 0 0 16px rgba(15, 23, 42, 0.55);
+}
+
+.skill-animation-title {
+  font-size: clamp(1.2rem, 4.4vw, 1.8rem);
+  font-weight: 900;
+  line-height: 1.08;
+}
+
+.skill-animation-meta {
+  margin-top: 4px;
+  font-size: clamp(0.78rem, 2.7vw, 0.95rem);
+  letter-spacing: 0.04em;
+  opacity: 0.78;
+}
+
+@keyframes skill-ring-spin {
+  from {
+    transform: rotate(0deg) scale(0.92);
+  }
+  to {
+    transform: rotate(360deg) scale(1.03);
+  }
+}
+
+@keyframes skill-icon-pop {
+  from {
+    transform: scale(0.74);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 #cataract-mist-layer {
   z-index: 900;
   position: fixed;

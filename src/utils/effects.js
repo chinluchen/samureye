@@ -171,13 +171,22 @@ export function triggerSplitEffect(rect, rotation, { finishing = false } = {}) {
 }
 
 export function hideCataractMist() {
-  gsap.set('#cataract-mist-layer', { opacity: 0 });
+  const mist = document.getElementById('cataract-mist-layer');
+  if (!mist) return;
+  gsap.set(mist, { opacity: 0 });
 }
 
 export function showCataractMist() {
-  gsap.to('#cataract-mist-layer', { opacity: 1, duration: 0.3 });
+  const mist = document.getElementById('cataract-mist-layer');
+  if (!mist) return;
+  gsap.to(mist, { opacity: 1, duration: 0.3 });
 }
 
 export function fadeOutCataractMist(onComplete) {
-  gsap.to('#cataract-mist-layer', { opacity: 0, duration: 0.5, onComplete });
+  const mist = document.getElementById('cataract-mist-layer');
+  if (!mist) {
+    if (typeof onComplete === 'function') onComplete();
+    return;
+  }
+  gsap.to(mist, { opacity: 0, duration: 0.5, onComplete });
 }
