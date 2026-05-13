@@ -242,6 +242,18 @@ export function useBattleGame({
     showDamagePopup(-amount, true, color, { finishing: isFinishing() });
   }
 
+  function healPlayer(amount, color = '#22c55e') {
+    const heal = Math.max(0, Number(amount));
+    if (heal <= 0) return 0;
+    const before = playerHp.value;
+    const after = Math.min(playerMaxHp.value, before + heal);
+    const actual = Math.max(0, after - before);
+    if (actual <= 0) return 0;
+    playerHp.value = after;
+    showDamagePopup(`+${actual}`, true, color, { finishing: isFinishing() });
+    return actual;
+  }
+
   function triggerSlowMotionFinish() {
     if (gameState.value === 'finishing' || gameState.value === 'gameResult') return;
     const token = runToken.value;
@@ -533,6 +545,7 @@ export function useBattleGame({
         triggerImpactShake,
         vibrate,
         sfx,
+        healPlayer,
         waitForRun,
         scheduleTimeout,
         isRunActive,

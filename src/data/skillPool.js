@@ -1,263 +1,186 @@
-export const skillPool = [
-  {
-    id: 'landolt-slash',
-    name: '秘劍．C標斬',
-    enName: 'Landolt Slash',
-    icon: '🗡️',
-    cost: 0,
-    cooldownSec: 0,
-    damage: 10,
-    extraEffect: '基本攻擊，累積能量',
-    animationStyle: 'Landolt C 視標出現，劃過開口處產生切裂特效',
-    soundEffect: '清脆揮刀聲',
-    equipable: false,
-    bossOnly: false
-  },
-  {
-    id: 'astig',
-    name: '極意．散光斬',
-    enName: 'Astigmatism Slash',
-    icon: '🕶️',
-    cost: 30,
-    cooldownSec: 1,
-    damage: 45,
-    extraEffect: '造成多重殘影，使對手下一回合視標模糊',
-    animationStyle: '鐘盤放射線由中心向四周爆發多道斬擊',
-    soundEffect: '重金屬撞擊聲',
-    bossOnly: false
-  },
-  {
-    id: 'macular',
-    name: '奧義．黃斑殺',
-    enName: 'Macular Slaying',
-    icon: '👁️',
-    cost: 50,
-    cooldownSec: 1,
-    damage: 85,
-    extraEffect: '針對中心視野重擊，無視對方 20% 防禦力',
-    animationStyle: '強光匯聚螢幕中心後炸裂，伴隨中心黑點特效',
-    soundEffect: '高頻雷射聚能聲',
-    bossOnly: false
-  },
-  {
-    id: 'prism-break',
-    name: '幻術．稜鏡破',
-    enName: 'Prism Break',
-    icon: '🌈',
-    cost: 40,
-    cooldownSec: 1,
-    damage: 50,
-    extraEffect: '造成折射偏位，對手看到的視標位置會偏移',
-    animationStyle: '視標產生彩虹色偏折殘影，隨後如玻璃般破碎',
-    soundEffect: '玻璃碎裂聲',
-    bossOnly: false
-  },
-  {
-    id: 'flash-glare',
-    name: '光陣．閃光眼',
-    enName: 'Flash Glare',
-    icon: '⚡',
-    cost: 25,
-    cooldownSec: 1,
-    damage: 15,
-    extraEffect: '使對方畫面產生致盲白光，持續 2 秒',
-    animationStyle: '螢幕瞬間轉為強烈白光後緩慢消散',
-    soundEffect: '閃光燈充電與釋放聲',
-    bossOnly: false
-  },
-  {
-    id: 'accom-burst',
-    name: '覺醒．調節力爆發',
-    enName: 'Accom. Burst',
-    icon: '🌀',
-    cost: 35,
-    cooldownSec: 1,
-    damage: 0,
-    extraEffect: '瞬間冷卻所有招式，並提升下招 50% 傷害',
-    animationStyle: '角色周身出現向內縮放的綠色對焦環光圈',
-    soundEffect: '快速心跳與機械對焦聲',
-    bossOnly: false
-  },
-  {
-    id: 'corneal-shield',
-    name: '絕對．角膜盾',
-    enName: 'Corneal Shield',
-    icon: '🛡️',
-    cost: 20,
-    cooldownSec: 1,
-    damage: 0,
-    extraEffect: '形成角膜弧度護罩，吸收 3 秒內所有傷害',
-    animationStyle: '淡藍色透明圓弧罩住玩家視野邊緣',
-    soundEffect: '力場啟動的低頻嗡鳴音',
-    bossOnly: false
-  },
-  {
-    id: 'full-field-scan',
-    name: '終焉．全視野掃描',
-    enName: 'Full Field Scan',
-    icon: '📡',
-    cost: 85,
-    cooldownSec: 1,
-    damage: 120,
-    extraEffect: '全螢幕毀滅打擊，對手視標縮至 0.1 等級',
-    animationStyle: '類似 OCT 紅光水平掃過全場，造成格狀震動',
-    soundEffect: '電子掃描儀器運作聲',
-    bossOnly: false
-  },
-  {
-    id: 'amblyopia-trap',
-    name: '幽冥．弱視陷阱',
-    enName: 'Amblyopia Trap',
-    icon: '🕳️',
-    cost: 45,
-    cooldownSec: 1,
-    damage: 30,
-    extraEffect: '降低對手判定的精準度，使其判定範圍縮小',
-    animationStyle: '畫面對比度大幅降低，視標變得極淡',
-    soundEffect: '深海般的悶響聲',
-    bossOnly: false
-  },
-  {
-    id: 'duochrome-strike',
-    name: '天平．紅綠平衡',
-    enName: 'Duochrome Strike',
-    icon: '⚖️',
-    cost: 40,
-    cooldownSec: 1,
-    damage: 60,
-    extraEffect: '隨機造成灼燒(紅)或緩速(綠)效果',
-    animationStyle: '畫面左右半分裂為紅綠背景，發射雙重衝擊波',
-    soundEffect: '電子平衡音',
-    bossOnly: false
-  },
-  {
-    id: 'presbyopia-press',
-    name: '崩壞．老花重壓',
-    enName: 'Presbyopia Press',
-    icon: '👓',
-    cost: 55,
-    cooldownSec: 1,
-    damage: 70,
-    extraEffect: '對手近距離視標變得極大且模糊',
-    animationStyle: '畫面向中央塌陷，產生老花透鏡扭曲感',
-    soundEffect: '沉重撞擊聲',
-    bossOnly: false
-  },
-  {
-    id: 'cover-strike',
-    name: '封鎖．遮蓋測試',
-    enName: 'Cover Strike',
-    icon: '🧱',
-    cost: 30,
-    cooldownSec: 1,
-    damage: 40,
-    extraEffect: '隨機遮蔽對手一半的畫面區域',
-    animationStyle: '巨大黑色遮板由上方拍落遮擋視線',
-    soundEffect: '重木板撞擊聲',
-    bossOnly: false
-  },
-  {
-    id: 'retinal-detachment',
-    name: '破裂．視網膜剝離',
-    enName: 'Retinal Detachment',
-    icon: '🩸',
-    cost: 70,
-    cooldownSec: 1,
-    damage: 100,
-    extraEffect: '持續傷害並造成畫面局部黑洞空間',
-    animationStyle: '螢幕邊緣像紙張一樣剝落掉落黑色碎片',
-    soundEffect: '布料撕裂聲',
-    bossOnly: false
-  },
-  {
-    id: 'myopia-spiral',
-    name: '深淵．近視螺旋',
-    enName: 'Myopia Spiral',
-    icon: '🌪️',
-    cost: 35,
-    cooldownSec: 1,
-    damage: 45,
-    extraEffect: '扭曲空間，拉近對手視野縮短反應時間',
-    animationStyle: '背景產生無限延伸的螺旋凹透鏡特效',
-    soundEffect: '風鈴旋轉聲',
-    bossOnly: false
-  },
-  {
-    id: 'dry-eye-burn',
-    name: '乾涸．淚液乾枯',
-    enName: 'Dry Eye Burn',
-    icon: '🔥',
-    cost: 20,
-    cooldownSec: 1,
-    damage: 25,
-    extraEffect: '灼燒效果，對手每次切擊扣除微量血量',
-    animationStyle: '畫面出現龜裂紋路，伴隨熱氣上升特效',
-    soundEffect: '摩擦乾燥聲',
-    bossOnly: false
-  },
-  {
-    id: 'field-loss',
-    name: '虛無．視野缺損',
-    enName: 'Field Loss',
-    icon: '🌑',
-    cost: 50,
-    cooldownSec: 1,
-    damage: 55,
-    extraEffect: '造成長效黑影，縮減對手的可視區域',
-    animationStyle: '視野邊緣逐漸被黑色煙霧侵蝕包圍',
-    soundEffect: '低沉煙霧聲',
-    bossOnly: false
-  },
-  {
-    id: 'binocular-chaos',
-    name: '混沌．雙眼視混亂',
-    enName: 'Binocular Chaos',
-    icon: '👥',
-    cost: 45,
-    cooldownSec: 1,
-    damage: 50,
-    extraEffect: '對手螢幕出現左右複影（Double Vision）',
-    animationStyle: '視標分裂成兩個虛影左右搖晃',
-    soundEffect: '重疊回音聲',
-    bossOnly: false
-  },
-  {
-    id: 'cycloplegic-shock',
-    name: '雷鳴．睫狀肌麻痺',
-    enName: 'Cycloplegic Shock',
-    icon: '⚡',
-    cost: 60,
-    cooldownSec: 1,
-    damage: 0,
-    extraEffect: '封鎖對手神經，5 秒內無法使用招式',
-    animationStyle: '紫色閃電擊中對手，對焦環碎裂特效',
-    soundEffect: '高壓電流聲',
-    bossOnly: false
-  },
-  {
-    id: 'mydriasis-boom',
-    name: '狂宴．散瞳大爆發',
-    enName: 'Mydriasis Boom',
-    icon: '✨',
-    cost: 65,
-    cooldownSec: 1,
-    damage: 90,
-    extraEffect: '大幅提升暴擊率，畫面亮度過載',
-    animationStyle: '瞳孔圖案在螢幕中心急劇擴大並噴發能量',
-    soundEffect: '氣流噴射聲',
-    bossOnly: false
-  },
-  {
-    id: 'pinhole-focus',
-    name: '神視．針孔效應',
-    enName: 'Pinhole Focus',
-    icon: '🎯',
-    cost: 40,
-    cooldownSec: 1,
-    damage: 0,
-    extraEffect: '下一招必定暴擊且無視所有減益干擾',
-    animationStyle: '畫面瞬間縮小成一個極清晰的小圓孔',
-    soundEffect: '精密對焦聲',
-    bossOnly: false
+import skillsSource from './skills.json';
+import animationsSource from './skill_animations.json';
+
+const ICON_BY_SKILL_ID = {
+  astig: '🕶️',
+  chlorophyll: '🌿',
+  'prism-break': '🌈',
+  'corneal-shield': '🛡️',
+  'amblyopia-trap': '👁️'
+};
+
+function toNumber(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return n;
+}
+
+function clampMinInt(value, min = 0, fallback = 0) {
+  const n = Math.round(toNumber(value, fallback));
+  return Math.max(min, n);
+}
+
+function safeString(value, fallback = '') {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  return text.trim() || fallback;
+}
+
+function buildAnimationIndex() {
+  const list = Array.isArray(animationsSource?.animations) ? animationsSource.animations : [];
+  const byAnimationKey = new Map();
+  const bySkillId = new Map();
+
+  list.forEach((item) => {
+    const animationKey = safeString(item?.animationKey);
+    const skillId = safeString(item?.skillId);
+    if (animationKey) byAnimationKey.set(animationKey, item);
+    if (skillId) bySkillId.set(skillId, item);
+  });
+
+  return { byAnimationKey, bySkillId };
+}
+
+function resolveAnimationBinding(skill, animationIndex) {
+  const requestedKey = safeString(skill?.animationKey);
+  const skillId = safeString(skill?.skillId);
+  const direct = requestedKey ? animationIndex.byAnimationKey.get(requestedKey) : null;
+  if (direct) return { animation: direct, resolvedAnimationKey: requestedKey };
+
+  const bySkill = skillId ? animationIndex.bySkillId.get(skillId) : null;
+  if (bySkill) {
+    return {
+      animation: bySkill,
+      resolvedAnimationKey: safeString(bySkill.animationKey, requestedKey || skillId)
+    };
   }
-];
+
+  return { animation: null, resolvedAnimationKey: requestedKey || skillId };
+}
+
+function extractVisualEffects(visualBinding, animation) {
+  const keys = [
+    safeString(visualBinding?.castVisualKey),
+    safeString(visualBinding?.hitVisualKey),
+    safeString(visualBinding?.impactVisualKey),
+    safeString(visualBinding?.durationVisualKey),
+    safeString(animation?.castStart?.visualKey),
+    safeString(animation?.onHit?.visualKey),
+    safeString(animation?.onHit?.impactVisualKey),
+    safeString(animation?.durationEffect?.visualKey),
+    safeString(animation?.castEnd?.visualKey)
+  ].filter(Boolean);
+
+  return [...new Set(keys)];
+}
+
+function normalizeSkill(skill, animationIndex) {
+  const runtime = skill?.runtime ?? {};
+  if (!runtime?.isImplemented || !runtime?.isProgramReadable) return null;
+
+  const logic = skill?.logic ?? {};
+  const timing = logic?.timing ?? {};
+  const execution = skill?.execution ?? {};
+  const unlock = skill?.unlock ?? {};
+  const cost = skill?.cost ?? {};
+  const visualBinding = skill?.visualBinding ?? {};
+  const statusEffects = logic?.statusEffects ?? {};
+  const effectType = safeString(logic?.effectType, 'damage');
+  const baseValue = clampMinInt(logic?.baseEffectValue, 0, 0);
+  const { animation, resolvedAnimationKey } = resolveAnimationBinding(skill, animationIndex);
+  const damageTextMode = safeString(visualBinding?.damageTextMode || animation?.onHit?.damageTextMode);
+  const textColor = safeString(visualBinding?.textColor || animation?.onHit?.textColor);
+  const audioKey = safeString(visualBinding?.audioKey || animation?.audio?.key);
+  const hapticMode = safeString(visualBinding?.hapticMode || animation?.haptic?.mode);
+  const castVisualKey = safeString(visualBinding?.castVisualKey || animation?.castStart?.visualKey);
+  const hitVisualKey = safeString(visualBinding?.hitVisualKey || animation?.onHit?.visualKey);
+  const impactVisualKey = safeString(visualBinding?.impactVisualKey || animation?.onHit?.impactVisualKey);
+  const durationVisualKey = safeString(visualBinding?.durationVisualKey || animation?.durationEffect?.visualKey);
+  const endVisualKey = safeString(animation?.castEnd?.visualKey);
+  const clearTiming = safeString(animation?.castEnd?.clearTiming, execution?.skillEndCondition);
+  const useHitEventsVisual = Boolean(animation?.onHit?.useHitEvents);
+  const useHitEventsExecution = Boolean(execution?.generateHitEvents);
+  const hitPattern = logic?.hitPattern && typeof logic.hitPattern === 'object' ? logic.hitPattern : {};
+
+  return {
+    id: safeString(skill?.skillId),
+    name: safeString(skill?.name),
+    enName: safeString(skill?.enName),
+    icon: ICON_BY_SKILL_ID[safeString(skill?.skillId)] ?? '✨',
+    cost: clampMinInt(cost?.mp, 0, 0),
+    cooldownSec: Math.max(0, toNumber(cost?.cooldownSec, 0)),
+    damage: effectType === 'heal' ? 0 : baseValue,
+    healValue: effectType === 'heal' ? baseValue : 0,
+    extraEffect: safeString(skill?.description),
+    animationStyle: safeString(visualBinding?.animationStyle),
+    soundEffect: audioKey,
+    animationKey: resolvedAnimationKey,
+    effectType,
+    effectMode: safeString(logic?.effectMode),
+    skillType: safeString(logic?.skillType),
+    targetRule: safeString(logic?.targetRule, 'opponent'),
+    baseEffectValue: baseValue,
+    hitCount: clampMinInt(logic?.hitCount, 1, 1),
+    valuePerHit: clampMinInt(logic?.valuePerHit, 0, 0),
+    pvpAuthoritativeValue: clampMinInt(logic?.pvpAuthoritativeValue, 0, baseValue),
+    pauseDurationMs: clampMinInt(timing?.pauseDurationMs, 0, 0),
+    startAtMs: clampMinInt(timing?.startAtMs, 0, 0),
+    intervalMs: clampMinInt(timing?.intervalMs, 0, 0),
+    resolveMode: safeString(timing?.resolveMode),
+    timeSyncField: safeString(timing?.timeSyncField),
+    pveStrategy: safeString(execution?.pveStrategy),
+    pvpStrategy: safeString(execution?.pvpStrategy),
+    pvpAuthoritySource: safeString(execution?.pvpAuthoritySource),
+    sendSkillDamagePacket: Boolean(execution?.sendSkillDamagePacket),
+    generateHitEvents: Boolean(execution?.generateHitEvents),
+    targetView: safeString(execution?.targetView),
+    skillEndCondition: safeString(execution?.skillEndCondition),
+    battleOutcomeTiming: safeString(execution?.battleOutcomeTiming),
+    pvpPacketRule: safeString(execution?.pvpPacketRule),
+    hitPattern,
+    statusEffects: {
+      id: safeString(statusEffects?.id),
+      target: safeString(statusEffects?.target),
+      durationMs: clampMinInt(statusEffects?.durationMs, 0, 0),
+      tickMs: clampMinInt(statusEffects?.tickMs, 0, 0),
+      hasStatusEffect: Boolean(statusEffects?.hasStatusEffect)
+    },
+    castVisualKey,
+    hitVisualKey,
+    impactVisualKey,
+    durationVisualKey,
+    endVisualKey,
+    clearTiming,
+    damageTextMode,
+    textColor,
+    audioKey,
+    hapticMode,
+    useHitEventsVisual,
+    useHitEventsExecution,
+    visualEffects: extractVisualEffects(visualBinding, animation),
+    audioEffects: audioKey ? [audioKey] : [],
+    implementationStatus: safeString(runtime?.implementationStatus),
+    displayStatus: safeString(runtime?.displayStatus),
+    skillTreeDisplay: safeString(runtime?.skillTreeDisplay),
+    equipable: Boolean(unlock?.learnable) && Boolean(runtime?.isTreeVisible),
+    learnable: Boolean(unlock?.learnable),
+    defaultUnlocked: Boolean(unlock?.defaultUnlocked),
+    spCost: clampMinInt(unlock?.spCost, 0, 0),
+    prerequisites: Array.isArray(unlock?.prerequisites) ? unlock.prerequisites : [],
+    unlockCondition: safeString(unlock?.unlockCondition),
+    bossOnly: false,
+    description: safeString(skill?.description),
+    devNotes: safeString(skill?.devNotes),
+    fallbackAllowed: Boolean(animation?.fallbackAllowed),
+    codexCheck: safeString(animation?.codexCheck),
+    sharedEntrypoints: {
+      pve: safeString(animation?.sharedEntrypoints?.pve),
+      pvp: safeString(animation?.sharedEntrypoints?.pvp)
+    }
+  };
+}
+
+const animationIndex = buildAnimationIndex();
+
+export const skillPool = (Array.isArray(skillsSource?.skills) ? skillsSource.skills : [])
+  .map(skill => normalizeSkill(skill, animationIndex))
+  .filter(Boolean);

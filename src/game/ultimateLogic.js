@@ -1,4 +1,20 @@
 export async function runPlayerUltimateEffect(skill, token, ctx) {
+  const effectType = String(skill?.effectType ?? '').trim().toLowerCase();
+
+  if (effectType === 'heal' || skill.id === 'chlorophyll') {
+    const rawHeal = Math.max(0, Number(skill?.healValue ?? skill?.baseEffectValue ?? skill?.damage ?? 0));
+    if (rawHeal > 0 && typeof ctx.healPlayer === 'function') {
+      ctx.healPlayer(rawHeal, '#22c55e');
+    }
+    ctx.vibrate(10);
+    if (typeof ctx.sfx.playSfxProfile === 'function') {
+      ctx.sfx.playSfxProfile('focus');
+    } else {
+      ctx.sfx.playHit();
+    }
+    return ctx.waitForRun(900, token);
+  }
+
   if (skill.id === 'cataract') {
     ctx.enemyDebuff.value = 'cataract';
     const alive = await ctx.waitForRun(500, token);

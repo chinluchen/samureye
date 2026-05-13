@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "sync:ios": "rm -rf dist && npm run build && npx cap sync ios"
+    "sync:ios": "rm -rf dist && npm run build && npx cap sync ios",
+    "skills:convert": "python3 scripts/convert_skill_excels.py"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",

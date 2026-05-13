@@ -1,0 +1,418 @@
+{
+  "meta": {
+    "generatedAtUtc": "2026-05-12T17:45:00.945000+00:00",
+    "sourceExcel": "/Users/chin/Desktop/samureye_skills_final_skill_data.xlsx",
+    "sheetName": "技能資料表",
+    "schemaVersion": 1,
+    "runtimeRule": "Only skills where runtime.isImplemented=true and runtime.isProgramReadable=true should be loaded in game."
+  },
+  "skills": [
+    {
+      "order": 1,
+      "skillId": "astig",
+      "name": "極意．散光斬",
+      "enName": "Astigmatism Slash",
+      "animationKey": "astig",
+      "runtime": {
+        "implementationStatus": "實裝",
+        "displayStatus": "初始顯示",
+        "programRead": "讀取",
+        "skillTreeDisplay": "可顯示",
+        "isImplemented": true,
+        "isProgramReadable": true,
+        "isTreeVisible": true
+      },
+      "unlock": {
+        "spCost": 0,
+        "prerequisites": [],
+        "unlockCondition": "玩家等級>=1",
+        "defaultUnlocked": true,
+        "learnable": true
+      },
+      "cost": {
+        "mp": 30,
+        "cooldownSec": 1.0
+      },
+      "logic": {
+        "skillType": "multi_hit_attack",
+        "targetRule": "opponent",
+        "effectType": "damage",
+        "effectMode": "multi_hit",
+        "baseEffectValue": 45,
+        "hitCount": 15,
+        "valuePerHit": 3,
+        "pvpAuthoritativeValue": 45,
+        "timing": {
+          "startAtMs": 500,
+          "intervalMs": 120,
+          "pauseDurationMs": 4300,
+          "timeSyncField": "battleRemainingMsAtCast",
+          "resolveMode": "hit_events"
+        },
+        "hitPattern": {
+          "type": "multi_hit",
+          "hitCount": 15,
+          "damagePerHit": 3,
+          "startAtMs": 500,
+          "intervalMs": 120
+        },
+        "statusEffects": {
+          "id": "",
+          "target": "",
+          "durationMs": 2000,
+          "tickMs": 0,
+          "hasStatusEffect": false
+        }
+      },
+      "execution": {
+        "pveStrategy": "local_multi_tick",
+        "pvpStrategy": "host_hit_events",
+        "pvpAuthoritySource": "host",
+        "sendSkillDamagePacket": false,
+        "generateHitEvents": true,
+        "targetView": "caster,target",
+        "skillEndCondition": "all_hits_completed_then_resume",
+        "battleOutcomeTiming": "skill_end_after_all_hits",
+        "pvpPacketRule": "host一次產生完整hitEvents並放入skill_cast；雙方照hitEvents逐刀扣血/跳字/特效；不逐刀送damage封包"
+      },
+      "visualBinding": {
+        "castVisualKey": "character_dash_cutin",
+        "hitVisualKey": "slash_line",
+        "impactVisualKey": "hit_flash",
+        "durationVisualKey": "",
+        "damageTextMode": "per_hit",
+        "textColor": "red",
+        "audioKey": "slash_combo",
+        "hapticMode": "per_hit",
+        "animationStyle": "角色Cut-in衝刺，隨機方向/鐘盤感斬擊線連續命中。"
+      },
+      "description": "以15段連續斬擊造成總傷害45，並呈現逐刀扣血，例如200→197→194。",
+      "devNotes": "此招示範PvP host_hit_events；PvE可本機逐刀扣血。"
+    },
+    {
+      "order": 2,
+      "skillId": "chlorophyll",
+      "name": "回復藥．葉綠素",
+      "enName": "Recovery Potion: Chlorophyll",
+      "animationKey": "chlorophyll",
+      "runtime": {
+        "implementationStatus": "實裝",
+        "displayStatus": "初始顯示",
+        "programRead": "讀取",
+        "skillTreeDisplay": "可顯示",
+        "isImplemented": true,
+        "isProgramReadable": true,
+        "isTreeVisible": true
+      },
+      "unlock": {
+        "spCost": 0,
+        "prerequisites": [],
+        "unlockCondition": "玩家等級>=1",
+        "defaultUnlocked": true,
+        "learnable": true
+      },
+      "cost": {
+        "mp": 50,
+        "cooldownSec": 1.0
+      },
+      "logic": {
+        "skillType": "heal",
+        "targetRule": "self",
+        "effectType": "heal",
+        "effectMode": "single_effect",
+        "baseEffectValue": 100,
+        "hitCount": 1,
+        "valuePerHit": 100,
+        "pvpAuthoritativeValue": 100,
+        "timing": {
+          "startAtMs": 700,
+          "intervalMs": 0,
+          "pauseDurationMs": 1800,
+          "timeSyncField": "battleRemainingMsAtCast",
+          "resolveMode": "single_result"
+        },
+        "hitPattern": {
+          "type": "single_effect",
+          "amount": 100
+        },
+        "statusEffects": {
+          "id": "",
+          "target": "",
+          "durationMs": 0,
+          "tickMs": 0,
+          "hasStatusEffect": false
+        }
+      },
+      "execution": {
+        "pveStrategy": "local_heal",
+        "pvpStrategy": "host_result",
+        "pvpAuthoritySource": "host",
+        "sendSkillDamagePacket": false,
+        "generateHitEvents": false,
+        "targetView": "caster",
+        "skillEndCondition": "effect_completed_then_resume",
+        "battleOutcomeTiming": "after_effect_complete",
+        "pvpPacketRule": "host計算hpBefore/rawHeal/actualHeal/hpAfter並放入skill_cast.result；不要用負數damage或damage封包處理回血"
+      },
+      "visualBinding": {
+        "castVisualKey": "heal_cast_aura",
+        "hitVisualKey": "heal_glow",
+        "impactVisualKey": "green_hp_recover",
+        "durationVisualKey": "",
+        "damageTextMode": "heal_single",
+        "textColor": "green",
+        "audioKey": "heal_chime",
+        "hapticMode": "light",
+        "animationStyle": "綠色光芒、葉片粒子、回血音效，自己角色顯示+HP。"
+      },
+      "description": "回復自己生命100，不能超過maxHp；顯示綠色+HP跳字。",
+      "devNotes": "已將原本負值改為正值；程式需用effectType=heal與target=self判斷回血。"
+    },
+    {
+      "order": 3,
+      "skillId": "prism-break",
+      "name": "奧術．稜鏡幻覺",
+      "enName": "Prism Break",
+      "animationKey": "prism-break",
+      "runtime": {
+        "implementationStatus": "實裝",
+        "displayStatus": "初始顯示",
+        "programRead": "讀取",
+        "skillTreeDisplay": "可顯示",
+        "isImplemented": true,
+        "isProgramReadable": true,
+        "isTreeVisible": true
+      },
+      "unlock": {
+        "spCost": 0,
+        "prerequisites": [],
+        "unlockCondition": "玩家等級>=1",
+        "defaultUnlocked": true,
+        "learnable": true
+      },
+      "cost": {
+        "mp": 40,
+        "cooldownSec": 1.0
+      },
+      "logic": {
+        "skillType": "control_attack",
+        "targetRule": "opponent",
+        "effectType": "damage_status",
+        "effectMode": "single_hit",
+        "baseEffectValue": 50,
+        "hitCount": 1,
+        "valuePerHit": 50,
+        "pvpAuthoritativeValue": 50,
+        "timing": {
+          "startAtMs": 1200,
+          "intervalMs": 0,
+          "pauseDurationMs": 3700,
+          "timeSyncField": "battleRemainingMsAtCast",
+          "resolveMode": "single_result"
+        },
+        "hitPattern": {
+          "type": "single_hit",
+          "damage": 50,
+          "status": "prism_confusion",
+          "durationMs": 2500
+        },
+        "statusEffects": {
+          "id": "prism_confusion",
+          "target": "opponent",
+          "durationMs": 2500,
+          "tickMs": 0,
+          "hasStatusEffect": true
+        }
+      },
+      "execution": {
+        "pveStrategy": "local_single_hit_status",
+        "pvpStrategy": "host_result_status",
+        "pvpAuthoritySource": "host",
+        "sendSkillDamagePacket": false,
+        "generateHitEvents": false,
+        "targetView": "caster,target",
+        "skillEndCondition": "effect_completed_then_resume",
+        "battleOutcomeTiming": "skill_end_after_effect",
+        "pvpPacketRule": "host產生單次權威result與狀態效果；雙方同步播放稜鏡破碎/折射干擾動畫"
+      },
+      "visualBinding": {
+        "castVisualKey": "prism_cast",
+        "hitVisualKey": "prism_break_burst",
+        "impactVisualKey": "screen_refract_hit",
+        "durationVisualKey": "prism_refract_overlay",
+        "damageTextMode": "single",
+        "textColor": "red",
+        "audioKey": "prism_break",
+        "hapticMode": "medium",
+        "animationStyle": "稜鏡碎裂爆光、畫面折射偏移，目標端出現短暫視覺干擾。"
+      },
+      "description": "造成50傷害並讓對手短時間出現稜鏡折射干擾。",
+      "devNotes": "未完成技能之一：此列補足PvP/PvE與動畫key，實際強度可再平衡。"
+    },
+    {
+      "order": 6,
+      "skillId": "corneal-shield",
+      "name": "絕對．角膜盾",
+      "enName": "Corneal Shield",
+      "animationKey": "corneal-shield",
+      "runtime": {
+        "implementationStatus": "實裝",
+        "displayStatus": "解鎖顯示",
+        "programRead": "讀取",
+        "skillTreeDisplay": "不顯示",
+        "isImplemented": true,
+        "isProgramReadable": true,
+        "isTreeVisible": false
+      },
+      "unlock": {
+        "spCost": 2,
+        "prerequisites": [
+          "astig"
+        ],
+        "unlockCondition": "玩家等級>=2; 已學會astig",
+        "defaultUnlocked": false,
+        "learnable": true
+      },
+      "cost": {
+        "mp": 20,
+        "cooldownSec": 1.0
+      },
+      "logic": {
+        "skillType": "defense_buff",
+        "targetRule": "self",
+        "effectType": "shield",
+        "effectMode": "single_effect",
+        "baseEffectValue": 60,
+        "hitCount": 1,
+        "valuePerHit": 60,
+        "pvpAuthoritativeValue": 60,
+        "timing": {
+          "startAtMs": 500,
+          "intervalMs": 0,
+          "pauseDurationMs": 1600,
+          "timeSyncField": "battleRemainingMsAtCast",
+          "resolveMode": "status_start"
+        },
+        "hitPattern": {
+          "type": "shield",
+          "absorb": 60,
+          "durationMs": 5000
+        },
+        "statusEffects": {
+          "id": "corneal_shield",
+          "target": "self",
+          "durationMs": 5000,
+          "tickMs": 0,
+          "hasStatusEffect": true
+        }
+      },
+      "execution": {
+        "pveStrategy": "local_buff",
+        "pvpStrategy": "host_status_effect",
+        "pvpAuthoritySource": "host",
+        "sendSkillDamagePacket": false,
+        "generateHitEvents": false,
+        "targetView": "caster",
+        "skillEndCondition": "effect_started_then_resume",
+        "battleOutcomeTiming": "no_battle_end_on_buff",
+        "pvpPacketRule": "host同步盾值與持續時間；後續damage先由shield吸收，再扣HP；不送skill damage封包"
+      },
+      "visualBinding": {
+        "castVisualKey": "shield_cast",
+        "hitVisualKey": "shield_barrier",
+        "impactVisualKey": "shield_absorb_flash",
+        "durationVisualKey": "shield_aura",
+        "damageTextMode": "shield_single",
+        "textColor": "blue",
+        "audioKey": "shield_on",
+        "hapticMode": "light",
+        "animationStyle": "藍色/透明角膜狀護盾罩住角色，被擊中時產生吸收閃光。"
+      },
+      "description": "給自己角膜盾，吸收接下來60點傷害，持續5秒。",
+      "devNotes": "未完成技能之一：需在傷害計算前加入shield absorb處理。"
+    },
+    {
+      "order": 8,
+      "skillId": "amblyopia-trap",
+      "name": "奧義．黃斑殺",
+      "enName": "Amblyopia Trap",
+      "animationKey": "amblyopia-trap",
+      "runtime": {
+        "implementationStatus": "實裝",
+        "displayStatus": "解鎖顯示",
+        "programRead": "讀取",
+        "skillTreeDisplay": "不顯示",
+        "isImplemented": true,
+        "isProgramReadable": true,
+        "isTreeVisible": false
+      },
+      "unlock": {
+        "spCost": 2,
+        "prerequisites": [
+          "astig"
+        ],
+        "unlockCondition": "玩家等級>=3; 已學會astig",
+        "defaultUnlocked": false,
+        "learnable": true
+      },
+      "cost": {
+        "mp": 45,
+        "cooldownSec": 1.0
+      },
+      "logic": {
+        "skillType": "ultimate_attack",
+        "targetRule": "opponent",
+        "effectType": "damage_status",
+        "effectMode": "single_hit_status",
+        "baseEffectValue": 130,
+        "hitCount": 1,
+        "valuePerHit": 130,
+        "pvpAuthoritativeValue": 130,
+        "timing": {
+          "startAtMs": 1600,
+          "intervalMs": 0,
+          "pauseDurationMs": 4000,
+          "timeSyncField": "battleRemainingMsAtCast",
+          "resolveMode": "single_result"
+        },
+        "hitPattern": {
+          "type": "single_hit_status",
+          "damage": 130,
+          "status": "amblyopia_blur",
+          "durationMs": 3000
+        },
+        "statusEffects": {
+          "id": "amblyopia_blur",
+          "target": "opponent",
+          "durationMs": 3000,
+          "tickMs": 0,
+          "hasStatusEffect": true
+        }
+      },
+      "execution": {
+        "pveStrategy": "local_cinematic_status",
+        "pvpStrategy": "host_result_status",
+        "pvpAuthoritySource": "host",
+        "sendSkillDamagePacket": false,
+        "generateHitEvents": false,
+        "targetView": "caster,target",
+        "skillEndCondition": "effect_completed_then_resume",
+        "battleOutcomeTiming": "skill_end_after_effect",
+        "pvpPacketRule": "host產生權威result.damage=130與狀態效果；雙方同步大招演出、傷害與模糊狀態"
+      },
+      "visualBinding": {
+        "castVisualKey": "ultimate_cutin",
+        "hitVisualKey": "amblyopia_blast",
+        "impactVisualKey": "macular_flash_hit",
+        "durationVisualKey": "amblyopia_blur_overlay",
+        "damageTextMode": "single",
+        "textColor": "red",
+        "audioKey": "ultimate_hit",
+        "hapticMode": "heavy",
+        "animationStyle": "角色大招Cut-in、黃斑/暗點視覺衝擊、目標端模糊遮罩。"
+      },
+      "description": "高傷害大招，造成130傷害並讓對手短時間視覺模糊。",
+      "devNotes": "未完成技能之一：大招數值高，建議搭配較高MP、SP或解鎖門檻。"
+    }
+  ]
+}

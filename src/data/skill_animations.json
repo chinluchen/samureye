@@ -1,0 +1,260 @@
+{
+  "meta": {
+    "generatedAtUtc": "2026-05-12T17:45:00.945000+00:00",
+    "sourceExcel": "/Users/chin/Desktop/samureye_skill_animations.xlsx",
+    "sheetName": "動畫資料表",
+    "schemaVersion": 1
+  },
+  "animations": [
+    {
+      "order": 1,
+      "skillId": "astig",
+      "skillName": "極意．散光斬",
+      "animationKey": "astig",
+      "implementationStatus": "實裝",
+      "type": "multi_hit_cinematic",
+      "durationMs": 4300,
+      "requiresSkillAnimationLayer": true,
+      "castStart": {
+        "visualKey": "character_dash_cutin",
+        "casterDescription": "施放者角色由己方位置衝出，切入中央後進入連續斬擊",
+        "targetDescription": "目標端顯示敵方角色衝入/來襲提示，接著受擊"
+      },
+      "onHit": {
+        "visualKey": "slash_line",
+        "impactVisualKey": "hit_flash",
+        "damageTextMode": "per_hit",
+        "textColor": "red",
+        "useHitEvents": true
+      },
+      "audio": {
+        "key": "slash_combo"
+      },
+      "haptic": {
+        "mode": "per_hit"
+      },
+      "durationEffect": {
+        "visualKey": ""
+      },
+      "statusEffect": {
+        "id": "",
+        "target": "target",
+        "durationMs": 0,
+        "hasStatusEffect": false
+      },
+      "castEnd": {
+        "visualKey": "skill_layer_fade_out",
+        "clearTiming": "all_hits_completed_then_resume"
+      },
+      "roleMappingRule": "若localPlayerId==casterPlayerId則role=caster，否則role=target；caster與target看到不同方向的角色演出，但使用同一份hitEvents。",
+      "sharedEntrypoints": {
+        "pve": "useBattleGame/playSkillCinematic",
+        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+      },
+      "fallbackAllowed": false,
+      "codexCheck": "每一個hitEvent都必須呼叫playSkillHitVisual，包含斬擊線、跳字、音效、震動；不可只扣血。",
+      "notes": "PvP由host產生hitEvents；動畫每刀跟隨hitEvents觸發。",
+      "jsonPathHint": "animations.astig"
+    },
+    {
+      "order": 2,
+      "skillId": "macular",
+      "skillName": "回復藥．葉綠素",
+      "animationKey": "macular",
+      "implementationStatus": "實裝",
+      "type": "heal_self",
+      "durationMs": 1800,
+      "requiresSkillAnimationLayer": true,
+      "castStart": {
+        "visualKey": "green_leaf_aura",
+        "casterDescription": "施放者身上出現綠色光暈與葉片粒子",
+        "targetDescription": "目標同施放者(self)，不播放敵方攻擊動畫"
+      },
+      "onHit": {
+        "visualKey": "heal_glow",
+        "impactVisualKey": "green_particles",
+        "damageTextMode": "heal_single",
+        "textColor": "green",
+        "useHitEvents": false
+      },
+      "audio": {
+        "key": "heal_apply"
+      },
+      "haptic": {
+        "mode": "light"
+      },
+      "durationEffect": {
+        "visualKey": "heal_aura"
+      },
+      "statusEffect": {
+        "id": "heal",
+        "target": "self",
+        "durationMs": 1800,
+        "hasStatusEffect": true
+      },
+      "castEnd": {
+        "visualKey": "green_fade_out",
+        "clearTiming": "effect_completed_then_resume"
+      },
+      "roleMappingRule": "target=self；雙方都更新施放者血量，但綠色+HP跳字出現在施放者角色位置。",
+      "sharedEntrypoints": {
+        "pve": "SkillVisualEngine.playHeal",
+        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+      },
+      "fallbackAllowed": false,
+      "codexCheck": "回血不走紅色damage文字；必須顯示綠色+HP，並由host提供hpBefore/actualHeal/hpAfter。",
+      "notes": "技能表傷害/回復值可為正值100，程式以effectType=heal解析。",
+      "jsonPathHint": "animations.macular"
+    },
+    {
+      "order": 3,
+      "skillId": "prism-break",
+      "skillName": "奧術．稜鏡幻覺",
+      "animationKey": "prism-break",
+      "implementationStatus": "實裝",
+      "type": "single_hit_disrupt",
+      "durationMs": 3700,
+      "requiresSkillAnimationLayer": true,
+      "castStart": {
+        "visualKey": "prism_cast_cutin",
+        "casterDescription": "施放者角色施放稜鏡光束或碎裂Cut-in",
+        "targetDescription": "目標端顯示稜鏡碎裂/視野偏移提示"
+      },
+      "onHit": {
+        "visualKey": "prism_break_burst",
+        "impactVisualKey": "screen_shake_flash",
+        "damageTextMode": "single",
+        "textColor": "red",
+        "useHitEvents": false
+      },
+      "audio": {
+        "key": "prism_break_hit"
+      },
+      "haptic": {
+        "mode": "medium"
+      },
+      "durationEffect": {
+        "visualKey": "prism_distortion"
+      },
+      "statusEffect": {
+        "id": "prism_confuse",
+        "target": "target",
+        "durationMs": 1200,
+        "hasStatusEffect": true
+      },
+      "castEnd": {
+        "visualKey": "prism_fade_out",
+        "clearTiming": "effect_completed_then_resume"
+      },
+      "roleMappingRule": "caster看施放光束；target看稜鏡碎裂與短暫視覺偏移。",
+      "sharedEntrypoints": {
+        "pve": "SkillVisualEngine.playSingleHit",
+        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+      },
+      "fallbackAllowed": true,
+      "codexCheck": "若正式素材未完成可用prism_burst fallback，但仍要顯示命中特效與跳字。",
+      "notes": "可作為單段傷害＋短暫干擾技能；實際狀態效果依技能表決定。",
+      "jsonPathHint": "animations.prism-break"
+    },
+    {
+      "order": 4,
+      "skillId": "corneal-shield",
+      "skillName": "絕對．角膜盾",
+      "animationKey": "corneal-shield",
+      "implementationStatus": "實裝",
+      "type": "shield_buff",
+      "durationMs": 2200,
+      "requiresSkillAnimationLayer": true,
+      "castStart": {
+        "visualKey": "shield_cast_pose",
+        "casterDescription": "施放者前方展開透明角膜狀護盾",
+        "targetDescription": "目標同施放者(self)，敵方只看到對手獲得護盾提示"
+      },
+      "onHit": {
+        "visualKey": "shield_pulse",
+        "impactVisualKey": "shield_spark",
+        "damageTextMode": "none",
+        "textColor": "cyan",
+        "useHitEvents": false
+      },
+      "audio": {
+        "key": "shield_on"
+      },
+      "haptic": {
+        "mode": "light"
+      },
+      "durationEffect": {
+        "visualKey": "shield_barrier"
+      },
+      "statusEffect": {
+        "id": "shield",
+        "target": "self",
+        "durationMs": 5000,
+        "hasStatusEffect": true
+      },
+      "castEnd": {
+        "visualKey": "shield_fade_out",
+        "clearTiming": "status_end_then_clear"
+      },
+      "roleMappingRule": "target=self；caster端與對手端都要看到施放者獲得護盾，但只有施放者UI顯示護盾狀態細節。",
+      "sharedEntrypoints": {
+        "pve": "SkillVisualEngine.playShield",
+        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+      },
+      "fallbackAllowed": true,
+      "codexCheck": "護盾類技能需要effectStart/effectEnd，不是只在施放瞬間處理。",
+      "notes": "持續效果時間以技能表或statusEffect資料為準；本表提供視覺模板。",
+      "jsonPathHint": "animations.corneal-shield"
+    },
+    {
+      "order": 5,
+      "skillId": "amblyopia-trap",
+      "skillName": "奧義．黃斑殺",
+      "animationKey": "amblyopia-trap",
+      "implementationStatus": "實裝",
+      "type": "ultimate_cinematic_status",
+      "durationMs": 4000,
+      "requiresSkillAnimationLayer": true,
+      "castStart": {
+        "visualKey": "ultimate_dark_cutin",
+        "casterDescription": "施放者進入大招Cut-in，畫面暗化並聚焦黃斑光點",
+        "targetDescription": "目標端顯示中心視野壓迫/黃斑陷阱特效"
+      },
+      "onHit": {
+        "visualKey": "macular_blast",
+        "impactVisualKey": "center_flash_distort",
+        "damageTextMode": "single",
+        "textColor": "red",
+        "useHitEvents": false
+      },
+      "audio": {
+        "key": "ultimate_hit"
+      },
+      "haptic": {
+        "mode": "heavy"
+      },
+      "durationEffect": {
+        "visualKey": "central_blur_overlay"
+      },
+      "statusEffect": {
+        "id": "amblyopia_trap",
+        "target": "target",
+        "durationMs": 2500,
+        "hasStatusEffect": true
+      },
+      "castEnd": {
+        "visualKey": "ultimate_fade_out",
+        "clearTiming": "effect_completed_then_resume"
+      },
+      "roleMappingRule": "caster看大招演出；target看中心視野干擾與受擊回饋。",
+      "sharedEntrypoints": {
+        "pve": "SkillVisualEngine.playUltimate",
+        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+      },
+      "fallbackAllowed": true,
+      "codexCheck": "大招不可只有扣血，必須有castStart、impact與durationEffect；素材未完成時用明確fallback並留下TODO。",
+      "notes": "可作為高傷害＋短暫視覺干擾技能；實際數值依技能表。",
+      "jsonPathHint": "animations.amblyopia-trap"
+    }
+  ]
+}
