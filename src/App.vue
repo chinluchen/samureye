@@ -223,6 +223,20 @@
       </div>
     </div>
   </main>
+
+  <Teleport to="body">
+    <div
+      v-if="isRootFogOverlayVisible"
+      ref="rootFogOverlayRef"
+      :class="['global-fog-overlay', `phase-${rootFogOverlayPhase}`]"
+      :style="rootFogOverlayStyle"
+      aria-hidden="true"
+    >
+      <span class="global-fog-layer global-fog-layer-a"></span>
+      <span class="global-fog-layer global-fog-layer-b"></span>
+      <span class="global-fog-layer global-fog-layer-c"></span>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -233,9 +247,13 @@ import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
+import { buildHostAuthoritativeSkillCast, resolveSkillEffectType, resolveSkillTargetRule } from './engines/SkillEngine.js';
+import { createSkillVisualEngine } from './engines/SkillVisualEngine.js';
 import { useBattleGame } from './composables/useBattleGame.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
+import { drawSlashLine, showDamagePopup, triggerImpactShake } from './utils/effects.js';
 import { sfx } from './services/SoundEngine.js';
+import { triggerHaptic } from './services/hapticsService.js';
 import { createMatchService } from './services/match/MatchService.js';
 import { appStorage } from './services/storage/preferencesStorage.js';
 import CutsceneLayer from './components/CutsceneLayer.vue';
@@ -280,7 +298,10 @@ const matchmakingStatus = reactive({
   errorMessage: '',
   localReady: false,
   opponentReady: false,
-  startPending: false
+  startPending: false,
+  startAtMs: 0,
+  fogPending: false,
+  fogEndAtMs: 0
 });
 let unsubscribeMatchStatus = null;
 let unsubscribeRealtimeEvents = null;
@@ -291,17 +312,74 @@ let shouldAutoResumeBattleAfterForeground = false;
 let localPvpEventSeq = 0;
 const remotePvpEventSeqByPlayer = new Map();
 let pendingPvpStartTimer = null;
+let pendingPvpFogTimer = null;
+let pendingRootFogFadeOutTimer = null;
+const rootFogPhaseTimers = new Set();
 let lastPvpBattleSeed = '';
 let activeSkillCast = null;
 const queuedSkillCasts = [];
 const queuedSkillCastIds = new Set();
 const appliedSkillCastDamageIds = new Set();
+const appliedSkillCastHitEventIds = new Set();
 let skillCastResolveTimer = null;
 let skillCastResumeTimer = null;
+const skillCastHitTimers = new Set();
 let awaitingLocalSkillCastAck = false;
 let localSkillCastAckTimer = null;
 let battleEndBroadcasted = false;
 const activeSkillAnimation = ref(null);
+const PVP_READY_COUNTDOWN_MS = 3200;
+const PVP_START_GUARD_MS = 350;
+const PVP_FOG_TRANSITION_MS = 1800;
+const rootFogOverlayRef = ref(null);
+const rootFogOverlayVisible = ref(false);
+const rootFogOverlayPhase = ref('pre');
+const rootFogTimeline = reactive({
+  durationMs: PVP_FOG_TRANSITION_MS,
+  thinEndMs: 500,
+  buildEndMs: 1300,
+  holdEndMs: PVP_FOG_TRANSITION_MS
+});
+
+function playSkillAudioByKey(audioKey = '', { isHeal = false, damage = 0, healAmount = 0 } = {}) {
+  const key = String(audioKey || '').trim();
+  switch (key) {
+    case 'slash_combo':
+      sfx.playSlash();
+      sfx.playHit();
+      return;
+    case 'heal_apply':
+    case 'heal_chime':
+      sfx.playSfxProfile?.('focus');
+      return;
+    case 'prism_break':
+    case 'prism_break_hit':
+      sfx.playSfxProfile?.('burst');
+      return;
+    case 'shield_on':
+      sfx.playSfxProfile?.('shield');
+      return;
+    case 'ultimate_hit':
+      sfx.playUlt();
+      return;
+    default:
+      if (isHeal || healAmount > 0) {
+        sfx.playSfxProfile?.('focus');
+        return;
+      }
+      if (damage > 0) {
+        sfx.playHit();
+      }
+  }
+}
+
+const skillVisualEngine = createSkillVisualEngine({
+  drawSlashLine,
+  showDamagePopup,
+  triggerImpactShake,
+  triggerHaptic,
+  playAudioKey: playSkillAudioByKey
+});
 const studyState = reactive({
   knowledgePoints: 0,
   answered: 0,
@@ -447,6 +525,16 @@ const selectedCharacter = computed(() => {
 });
 const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
+const isRootFogOverlayVisible = computed(() => {
+  return rootFogOverlayVisible.value;
+});
+const rootFogOverlayStyle = computed(() => {
+  return {
+    '--fog-thin-ms': `${Math.max(1, Math.round(rootFogTimeline.thinEndMs))}ms`,
+    '--fog-build-ms': `${Math.max(1, Math.round(rootFogTimeline.buildEndMs - rootFogTimeline.thinEndMs))}ms`,
+    '--fog-hold-ms': `${Math.max(1, Math.round(rootFogTimeline.holdEndMs - rootFogTimeline.buildEndMs))}ms`
+  };
+});
 const currentBattleOutcome = computed(() => {
   if (playerHp.value > opponentHp.value) return 'win';
   if (playerHp.value < opponentHp.value) return 'lose';
@@ -529,7 +617,22 @@ function getStandardBattleProgression() {
   };
 }
 
+function getPvpBattleProgression() {
+  return {
+    maxHp: GAME_CONFIG.maxHp,
+    targetHitDamage: GAME_CONFIG.targetHitDamage,
+    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
+    enemyAttackChancePerTick: 0,
+    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyUltChancePerTick: 0
+  };
+}
+
 function getBattleProgression() {
+  if (battleSessionMode.value === 'pvp') {
+    return getPvpBattleProgression();
+  }
+
   if (currentStageConfig.value.progressionType === 'tutorial') {
     return currentStageConfig.value.battleStats ?? getStandardBattleProgression();
   }
@@ -1050,9 +1153,24 @@ function applyMatchStatus(nextStatus = {}) {
 }
 
 function clearPendingPvpStartTimer() {
-  if (!pendingPvpStartTimer) return;
-  clearTimeout(pendingPvpStartTimer);
-  pendingPvpStartTimer = null;
+  if (pendingPvpStartTimer) {
+    clearTimeout(pendingPvpStartTimer);
+    pendingPvpStartTimer = null;
+  }
+  if (pendingPvpFogTimer) {
+    clearTimeout(pendingPvpFogTimer);
+    pendingPvpFogTimer = null;
+  }
+  if (pendingRootFogFadeOutTimer) {
+    clearTimeout(pendingRootFogFadeOutTimer);
+    pendingRootFogFadeOutTimer = null;
+  }
+  if (rootFogPhaseTimers.size > 0) {
+    rootFogPhaseTimers.forEach((timerId) => {
+      clearTimeout(timerId);
+    });
+    rootFogPhaseTimers.clear();
+  }
 }
 
 function resolveMatchPlayerId(profile = null) {
@@ -1082,6 +1200,12 @@ function clearSkillCastSyncTimers() {
     clearTimeout(skillCastResumeTimer);
     skillCastResumeTimer = null;
   }
+  if (skillCastHitTimers.size > 0) {
+    skillCastHitTimers.forEach((timerId) => {
+      clearTimeout(timerId);
+    });
+    skillCastHitTimers.clear();
+  }
 }
 
 function resetSkillCastSyncState() {
@@ -1093,6 +1217,7 @@ function resetSkillCastSyncState() {
   queuedSkillCasts.length = 0;
   queuedSkillCastIds.clear();
   appliedSkillCastDamageIds.clear();
+  appliedSkillCastHitEventIds.clear();
   const castToClear = activeSkillCast;
   activeSkillCast = null;
   awaitingLocalSkillCastAck = false;
@@ -1109,6 +1234,43 @@ function resolveSkillDefinitionById(skillId = '') {
       animationKey: id || 'unknown_skill',
       pauseDurationMs: 3700,
       hitCount: 1,
+      targetRule: 'opponent',
+      effectType: 'damage',
+      effectMode: 'single_hit',
+      valuePerHit: 0,
+      pvpAuthoritativeValue: 0,
+      startAtMs: 0,
+      intervalMs: 0,
+      resolveMode: 'resolve_at_ms',
+      timeSyncField: 'battleRemainingMsAtCast',
+      pveStrategy: 'local_single_or_effect',
+      pvpStrategy: 'host_single_result',
+      pvpAuthoritySource: 'host',
+      sendSkillDamagePacket: false,
+      generateHitEvents: false,
+      targetView: 'both',
+      skillEndCondition: 'effect_completed_then_resume',
+      battleOutcomeTiming: 'skill_end_after_effect',
+      hitPattern: {},
+      statusEffects: {
+        id: '',
+        target: '',
+        durationMs: 0,
+        tickMs: 0,
+        hasStatusEffect: false
+      },
+      castVisualKey: '',
+      hitVisualKey: '',
+      impactVisualKey: '',
+      durationVisualKey: '',
+      endVisualKey: '',
+      clearTiming: '',
+      damageTextMode: 'single',
+      textColor: 'red',
+      audioKey: '',
+      hapticMode: '',
+      useHitEventsVisual: false,
+      useHitEventsExecution: false,
       baseDamage: 0,
       visualEffects: [],
       audioEffects: [],
@@ -1126,27 +1288,47 @@ function resolveSkillDefinitionById(skillId = '') {
     animationKey: String(raw.animationKey ?? raw.id ?? id).trim() || 'unknown_skill',
     pauseDurationMs,
     hitCount: Number.isFinite(Number(raw.hitCount)) ? Math.max(1, Math.round(Number(raw.hitCount))) : 1,
+    targetRule: String(raw.targetRule ?? 'opponent').trim() || 'opponent',
+    effectType: String(raw.effectType ?? 'damage').trim() || 'damage',
+    effectMode: String(raw.effectMode ?? 'single_hit').trim() || 'single_hit',
+    valuePerHit: Math.max(0, Number(raw.valuePerHit ?? 0)),
+    pvpAuthoritativeValue: Math.max(0, Number(raw.pvpAuthoritativeValue ?? 0)),
+    startAtMs: Math.max(0, Math.round(Number(raw.startAtMs ?? 0))),
+    intervalMs: Math.max(0, Math.round(Number(raw.intervalMs ?? 0))),
+    resolveMode: String(raw.resolveMode ?? '').trim(),
+    timeSyncField: String(raw.timeSyncField ?? '').trim(),
+    pveStrategy: String(raw.pveStrategy ?? '').trim(),
+    pvpStrategy: String(raw.pvpStrategy ?? '').trim(),
+    pvpAuthoritySource: String(raw.pvpAuthoritySource ?? '').trim(),
+    sendSkillDamagePacket: Boolean(raw.sendSkillDamagePacket),
+    generateHitEvents: Boolean(raw.generateHitEvents),
+    targetView: String(raw.targetView ?? '').trim(),
+    skillEndCondition: String(raw.skillEndCondition ?? '').trim(),
+    battleOutcomeTiming: String(raw.battleOutcomeTiming ?? '').trim(),
+    pvpPacketRule: String(raw.pvpPacketRule ?? '').trim(),
+    hitPattern: raw.hitPattern && typeof raw.hitPattern === 'object' ? raw.hitPattern : {},
+    statusEffects: raw.statusEffects && typeof raw.statusEffects === 'object'
+      ? raw.statusEffects
+      : { id: '', target: '', durationMs: 0, tickMs: 0, hasStatusEffect: false },
+    castVisualKey: String(raw.castVisualKey ?? '').trim(),
+    hitVisualKey: String(raw.hitVisualKey ?? '').trim(),
+    impactVisualKey: String(raw.impactVisualKey ?? '').trim(),
+    durationVisualKey: String(raw.durationVisualKey ?? '').trim(),
+    endVisualKey: String(raw.endVisualKey ?? '').trim(),
+    clearTiming: String(raw.clearTiming ?? '').trim(),
+    damageTextMode: String(raw.damageTextMode ?? '').trim(),
+    textColor: String(raw.textColor ?? '').trim(),
+    audioKey: String(raw.audioKey ?? '').trim(),
+    hapticMode: String(raw.hapticMode ?? '').trim(),
+    useHitEventsVisual: Boolean(raw.useHitEventsVisual),
+    useHitEventsExecution: Boolean(raw.useHitEventsExecution),
     baseDamage: Math.max(0, Number(raw.damage ?? 0)),
+    healValue: Math.max(0, Number(raw.healValue ?? 0)),
     visualEffects: Array.isArray(raw.visualEffects) ? raw.visualEffects : [],
     audioEffects: Array.isArray(raw.audioEffects) ? raw.audioEffects : [],
     timing: raw.timing && typeof raw.timing === 'object' ? raw.timing : { resolveRatio: 0.62 },
     modeOverrides: raw.modeOverrides && typeof raw.modeOverrides === 'object' ? raw.modeOverrides : {}
   };
-}
-
-function resolvePvpSkillDamage(skillDefinition = null) {
-  const skill = skillDefinition && typeof skillDefinition === 'object' ? skillDefinition : resolveSkillDefinitionById('');
-  const overrideDamage = Number(skill?.modeOverrides?.pvp?.damage);
-  if (Number.isFinite(overrideDamage) && overrideDamage >= 0) {
-    return Math.max(0, Math.round(overrideDamage));
-  }
-  const skillId = String(skill?.id ?? '').trim();
-  if (skillId === 'cataract') return 0;
-  if (skillId === 'dilation') return 140;
-  if (skillId === 'astig') return 75;
-  if (skillId === 'macular') return 130;
-  if (skillId === 'glaucoma') return 95;
-  return Math.max(0, Math.round(Number(skill?.baseDamage ?? skill?.damage ?? 0)));
 }
 
 function resolveSkillNameById(skillId = '') {
@@ -1206,34 +1388,40 @@ function buildHostAuthoritativeSkillCastPayload({
   const nowMs = Date.now();
   const pauseDurationMs = Math.max(800, Math.min(6000, Number(resolvedSkill.pauseDurationMs ?? 3700)));
   const resolveRatio = Number(resolvedSkill?.timing?.resolveRatio ?? 0.62);
-  const normalizedResolveRatio = Number.isFinite(resolveRatio)
-    ? Math.max(0.15, Math.min(0.9, resolveRatio))
-    : 0.62;
   const battleRemainingMsAtCast = Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000));
-  const resultDamage = resolvePvpSkillDamage(resolvedSkill);
+  const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+  const opponentPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const resolvedCasterPlayerId = String(casterPlayerId).trim();
+  const fallbackTargetPlayerId = resolveSkillTargetRule(resolvedSkill) === 'self'
+    ? resolvedCasterPlayerId
+    : (resolvedCasterPlayerId === localPlayerId ? opponentPlayerId : localPlayerId);
+  const resolvedTargetPlayerId = String(targetPlayerId).trim() || fallbackTargetPlayerId;
+  let targetCurrentHp = Math.max(0, Math.round(Number(opponentHp.value ?? 0)));
+  let targetMaxHp = Math.max(0, Math.round(Number(opponentMaxHp.value ?? 0)));
+  if (resolvedTargetPlayerId && resolvedTargetPlayerId === localPlayerId) {
+    targetCurrentHp = Math.max(0, Math.round(Number(playerHp.value ?? 0)));
+    targetMaxHp = Math.max(0, Math.round(Number(playerMaxHp.value ?? 0)));
+  } else if (resolvedTargetPlayerId && resolvedTargetPlayerId === opponentPlayerId) {
+    targetCurrentHp = Math.max(0, Math.round(Number(opponentHp.value ?? 0)));
+    targetMaxHp = Math.max(0, Math.round(Number(opponentMaxHp.value ?? 0)));
+  } else if (resolvedCasterPlayerId !== localPlayerId) {
+    targetCurrentHp = Math.max(0, Math.round(Number(playerHp.value ?? 0)));
+    targetMaxHp = Math.max(0, Math.round(Number(playerMaxHp.value ?? 0)));
+  }
 
-  return {
+  return buildHostAuthoritativeSkillCast({
+    skill: resolvedSkill,
     castId: safeCastId,
-    casterPlayerId: String(casterPlayerId).trim(),
-    targetPlayerId: String(targetPlayerId).trim(),
-    skillId: resolvedSkill.id,
-    animationKey: String(resolvedSkill.animationKey ?? resolvedSkill.id).trim() || resolvedSkill.id,
-    pauseDurationMs,
-    hitCount: Math.max(1, Number(resolvedSkill.hitCount ?? 1)),
-    visualEffects: resolvedSkill.visualEffects,
-    audioEffects: resolvedSkill.audioEffects,
-    battleRemainingMsAtCast,
-    effectiveBattleTime: battleRemainingMsAtCast,
-    resolveAtMs: nowMs + Math.round(pauseDurationMs * normalizedResolveRatio),
+    casterPlayerId: resolvedCasterPlayerId,
+    targetPlayerId: resolvedTargetPlayerId,
     hostPlayerId: resolveMatchPlayerId(matchmakingStatus.localProfile),
-    timing: {
-      resolveRatio: normalizedResolveRatio
-    },
-    result: {
-      damage: resultDamage,
-      outcome: resultDamage > 0 ? 'damage' : 'effect_only'
-    }
-  };
+    battleRemainingMsAtCast,
+    resolveRatio,
+    pauseDurationMs,
+    targetCurrentHp,
+    targetMaxHp,
+    castStartAtMs: nowMs,
+  });
 }
 
 function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
@@ -1260,10 +1448,55 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
   const resolveAtMs = Number.isFinite(Number(payload.resolveAtMs))
     ? Math.round(Number(payload.resolveAtMs))
     : null;
-  const resultDamage = Math.max(0, Math.round(Number(payload?.result?.damage ?? payload?.damage ?? 0)));
+  const resultPayload = payload?.result && typeof payload.result === 'object' ? payload.result : {};
+  const resultDamage = Math.max(0, Math.round(Number(resultPayload?.damage ?? payload?.damage ?? 0)));
+  const resultHealPayload = resultPayload?.heal && typeof resultPayload.heal === 'object'
+    ? resultPayload.heal
+    : {};
+  const resultHeal = {
+    rawHeal: Math.max(0, Math.round(Number(resultHealPayload?.rawHeal ?? 0))),
+    actualHeal: Math.max(0, Math.round(Number(resultHealPayload?.actualHeal ?? 0))),
+    hpBefore: Math.max(0, Math.round(Number(resultHealPayload?.hpBefore ?? 0))),
+    hpAfter: Math.max(0, Math.round(Number(resultHealPayload?.hpAfter ?? 0))),
+    maxHp: Math.max(0, Math.round(Number(resultHealPayload?.maxHp ?? 0)))
+  };
+  const rawHitEvents = Array.isArray(payload.hitEvents) ? payload.hitEvents : [];
+  const statusEffectsPayload = payload?.statusEffects && typeof payload.statusEffects === 'object'
+    ? payload.statusEffects
+    : {};
+  const effectTimelinePayload = payload?.effectTimeline && typeof payload.effectTimeline === 'object'
+    ? payload.effectTimeline
+    : {};
+  const normalizedHitEvents = rawHitEvents
+    .map((raw, index) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const hitIndexRaw = Number(raw.hitIndex);
+      const hitIndex = Number.isFinite(hitIndexRaw) && hitIndexRaw > 0
+        ? Math.round(hitIndexRaw)
+        : (index + 1);
+      const atMsRaw = Number(raw.atMs);
+      const atMs = Number.isFinite(atMsRaw) ? Math.round(atMsRaw) : null;
+      const offsetMsRaw = Number(raw.offsetMs);
+      const offsetMs = Number.isFinite(offsetMsRaw) ? Math.max(0, Math.round(offsetMsRaw)) : null;
+      const hpBefore = Math.max(0, Math.round(Number(raw.hpBefore ?? 0)));
+      const hpAfter = Math.max(0, Math.round(Number(raw.hpAfter ?? hpBefore)));
+      const damage = Math.max(0, Math.round(Number(raw.damage ?? Math.max(0, hpBefore - hpAfter))));
+      return {
+        hitIndex,
+        atMs,
+        offsetMs,
+        damage,
+        hpBefore,
+        hpAfter
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.hitIndex - right.hitIndex);
   const localRole = casterPlayerId === localPlayerId
     ? 'caster'
-    : (targetPlayerId === localPlayerId ? 'target' : 'observer');
+    : (targetPlayerId === localPlayerId
+      ? 'target'
+      : (targetPlayerId === casterPlayerId ? 'opponent' : 'observer'));
 
   return {
     castId,
@@ -1276,7 +1509,27 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
     battleRemainingMsAtCast,
     effectiveBattleTime: battleRemainingMsAtCast,
     resolveAtMs,
+    result: resultPayload,
     resultDamage,
+    resultHeal,
+    statusEffects: {
+      id: String(statusEffectsPayload?.id ?? '').trim(),
+      target: String(statusEffectsPayload?.target ?? '').trim(),
+      durationMs: Math.max(0, Math.round(Number(statusEffectsPayload?.durationMs ?? 0))),
+      tickMs: Math.max(0, Math.round(Number(statusEffectsPayload?.tickMs ?? 0))),
+      hasStatusEffect: Boolean(statusEffectsPayload?.hasStatusEffect)
+    },
+    effectTimeline: {
+      effectStartAtMs: Number.isFinite(Number(effectTimelinePayload?.effectStartAtMs))
+        ? Math.round(Number(effectTimelinePayload?.effectStartAtMs))
+        : 0,
+      durationMs: Math.max(0, Math.round(Number(effectTimelinePayload?.durationMs ?? 0))),
+      tickMs: Math.max(0, Math.round(Number(effectTimelinePayload?.tickMs ?? 0))),
+      effectEndAtMs: Number.isFinite(Number(effectTimelinePayload?.effectEndAtMs))
+        ? Math.round(Number(effectTimelinePayload?.effectEndAtMs))
+        : 0
+    },
+    hitEvents: normalizedHitEvents,
     skillName: resolveSkillNameById(skillId),
     skillDefinition
   };
@@ -1293,8 +1546,34 @@ function syncBattleTimeFromSkillCast(cast = null) {
 
 function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
   if (!cast || typeof cast !== 'object') return;
+  if (Array.isArray(cast.hitEvents) && cast.hitEvents.length > 0) return;
   if (appliedSkillCastDamageIds.has(cast.castId)) return;
   appliedSkillCastDamageIds.add(cast.castId);
+  const effectType = resolveSkillEffectType(cast.skillDefinition);
+  if (effectType === 'heal') {
+    const actualHeal = Math.max(0, Math.round(Number(cast?.resultHeal?.actualHeal ?? cast?.result?.heal?.actualHeal ?? 0)));
+    const hpAfter = Math.max(0, Math.round(Number(cast?.resultHeal?.hpAfter ?? cast?.result?.heal?.hpAfter ?? 0)));
+    if (actualHeal > 0) {
+      if (cast.localRole === 'caster' || cast.localRole === 'target') {
+        playerHp.value = hpAfter;
+      } else if (cast.localRole === 'opponent') {
+        opponentHp.value = hpAfter;
+      }
+    }
+    skillVisualEngine.playHit({
+      skill: cast.skillDefinition,
+      cast,
+      hitEvent: {
+        hitIndex: 1,
+        heal: actualHeal,
+        actualHeal,
+        hpAfter
+      },
+      role: cast.localRole
+    });
+    console.info(`[PvP Sync] skill_cast 套用權威回血 castId=${cast.castId} role=${cast.localRole} reason=${reason} heal=${actualHeal} hpAfter=${hpAfter}`);
+    return;
+  }
   const damage = Math.max(0, Number(cast.resultDamage ?? 0));
   console.info(`[PvP Sync] skill_cast 套用權威傷害 castId=${cast.castId} role=${cast.localRole} reason=${reason} damage=${damage}`);
   if (damage <= 0) return;
@@ -1304,7 +1583,79 @@ function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
   }
   if (cast.localRole === 'target') {
     applyRemoteDamage(damage);
+    return;
   }
+  if (cast.localRole === 'opponent') {
+    const hpBefore = Math.max(0, Math.round(Number(opponentHp.value ?? 0)));
+    const hpAfter = Math.max(0, hpBefore - damage);
+    opponentHp.value = hpAfter;
+  }
+}
+
+function applySkillCastHitEvent(cast = null, hitEvent = null, reason = 'scheduled') {
+  if (!cast || typeof cast !== 'object') return;
+  if (!hitEvent || typeof hitEvent !== 'object') return;
+  const hitIndex = Math.max(1, Math.round(Number(hitEvent.hitIndex ?? 1)));
+  const dedupeId = `${cast.castId}:${hitIndex}`;
+  if (appliedSkillCastHitEventIds.has(dedupeId)) return;
+  appliedSkillCastHitEventIds.add(dedupeId);
+
+  const damage = Math.max(0, Math.round(Number(hitEvent.damage ?? 0)));
+  const heal = Math.max(0, Math.round(Number(hitEvent.heal ?? hitEvent.actualHeal ?? 0)));
+  const hpAfter = Math.max(0, Math.round(Number(hitEvent.hpAfter ?? 0)));
+  const hpBefore = Math.max(0, Math.round(Number(hitEvent.hpBefore ?? hpAfter + damage)));
+  const effectType = resolveSkillEffectType(cast.skillDefinition);
+  const isHeal = effectType === 'heal' || heal > 0;
+
+  if (cast.localRole === 'caster' || cast.localRole === 'target') {
+    if (isHeal) {
+      playerHp.value = hpAfter;
+    } else if (cast.localRole === 'caster') {
+      opponentHp.value = hpAfter;
+    } else {
+      playerHp.value = hpAfter;
+    }
+  } else if (cast.localRole === 'opponent') {
+    opponentHp.value = hpAfter;
+  }
+
+  skillVisualEngine.playHit({
+    skill: cast.skillDefinition,
+    cast,
+    hitEvent: {
+      ...hitEvent,
+      heal,
+      actualHeal: heal
+    },
+    role: cast.localRole
+  });
+
+  if (!isHeal && hpAfter <= 0) {
+    cast.pendingBattleEnd = true;
+  }
+
+  console.info(`[PvP Sync] skill_cast hit castId=${cast.castId} hitIndex=${hitIndex} damage=${damage} heal=${heal} hpBefore=${hpBefore} hpAfter=${hpAfter} role=${cast.localRole} reason=${reason}`);
+}
+
+function scheduleSkillCastHitEvents(cast = null) {
+  if (!cast || typeof cast !== 'object') return;
+  const hitEvents = Array.isArray(cast.hitEvents) ? cast.hitEvents : [];
+  if (hitEvents.length <= 0) return;
+  const nowMs = Date.now();
+
+  hitEvents.forEach((hitEvent) => {
+    const offsetMs = Number(hitEvent?.offsetMs);
+    const atMs = Number(hitEvent?.atMs);
+    let delayMs = Number.isFinite(offsetMs)
+      ? Math.max(0, Math.round(offsetMs))
+      : (Number.isFinite(atMs) ? Math.max(0, Math.round(atMs - nowMs)) : 0);
+    delayMs = Math.min(Math.max(0, delayMs), Math.max(0, Math.round(Number(cast.pauseDurationMs ?? 0))));
+    const timerId = setTimeout(() => {
+      skillCastHitTimers.delete(timerId);
+      applySkillCastHitEvent(cast, hitEvent, 'hit_event_timer');
+    }, delayMs);
+    skillCastHitTimers.add(timerId);
+  });
 }
 
 async function playSkillAnimation(cast = null) {
@@ -1358,6 +1709,7 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
 
   syncBattleTimeFromSkillCast(nextCast);
   console.info(`[PvP Sync] handleSkillCast啟動 castId=${nextCast.castId} role=${nextCast.localRole} skillId=${nextCast.skillId} pauseDurationMs=${nextCast.pauseDurationMs} battleRemainingMsAtCast=${nextCast.battleRemainingMsAtCast} reason=${reason}`);
+  nextCast.pendingBattleEnd = false;
 
   if (nextCast.localRole === 'caster') {
     const cost = Math.max(0, Number(nextCast.skillDefinition?.cost ?? 0));
@@ -1376,24 +1728,39 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   clearSkillCastSyncTimers();
   const nowMs = Date.now();
   const pauseDurationMs = Math.max(800, Number(nextCast.pauseDurationMs ?? 0));
+  const hasHitEvents = Array.isArray(nextCast.hitEvents) && nextCast.hitEvents.length > 0;
   const resolveDelay = Number.isFinite(Number(nextCast.resolveAtMs))
     ? Math.max(0, Math.min(pauseDurationMs, Number(nextCast.resolveAtMs) - nowMs))
     : Math.max(120, Math.min(pauseDurationMs - 80, Math.round(pauseDurationMs * 0.62)));
   const resumeDelay = Math.max(resolveDelay + 50, pauseDurationMs);
 
-  skillCastResolveTimer = setTimeout(() => {
-    skillCastResolveTimer = null;
-    applySkillCastAuthoritativeDamage(nextCast, 'resolve_at_ms');
-  }, resolveDelay);
+  if (hasHitEvents) {
+    scheduleSkillCastHitEvents(nextCast);
+  } else {
+    skillCastResolveTimer = setTimeout(() => {
+      skillCastResolveTimer = null;
+      applySkillCastAuthoritativeDamage(nextCast, 'resolve_at_ms');
+    }, resolveDelay);
+  }
 
   skillCastResumeTimer = setTimeout(() => {
     skillCastResumeTimer = null;
-    applySkillCastAuthoritativeDamage(nextCast, 'resume_fallback');
+    if (hasHitEvents) {
+      nextCast.hitEvents.forEach((hitEvent) => {
+        applySkillCastHitEvent(nextCast, hitEvent, 'resume_flush');
+      });
+    } else {
+      applySkillCastAuthoritativeDamage(nextCast, 'resume_fallback');
+    }
     if (nextCast.localRole === 'caster') {
       markPlayerSkillCooldownPending(nextCast.skillId, false);
       applyPlayerSkillCooldown(nextCast.skillDefinition);
     }
-    if (gameState.value !== 'gameResult' && gameState.value !== 'finishing') {
+    const shouldEndBattleAfterCast = Boolean(nextCast.pendingBattleEnd);
+    if (shouldEndBattleAfterCast && isCurrentPlayerMatchHost()) {
+      broadcastHostBattleEndNow('skill_cast_pending_end');
+    }
+    if (!shouldEndBattleAfterCast && gameState.value !== 'gameResult' && gameState.value !== 'finishing') {
       gameState.value = 'playing';
     }
     setPaused(false);
@@ -1441,7 +1808,11 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
   const opponentPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
   const requestedSkillId = String(payload?.skillId ?? '').trim();
   if (!requestedSkillId) return;
-  const targetPlayerId = requesterId === localPlayerId ? opponentPlayerId : localPlayerId;
+  const requestedSkill = resolveSkillDefinitionById(requestedSkillId);
+  const targetRule = resolveSkillTargetRule(requestedSkill);
+  const targetPlayerId = targetRule === 'self'
+    ? requesterId
+    : (requesterId === localPlayerId ? opponentPlayerId : localPlayerId);
   const requestCastId = String(payload?.requestCastId ?? '').trim();
   const authoritativeCast = buildHostAuthoritativeSkillCastPayload({
     skillId: requestedSkillId,
@@ -1455,17 +1826,39 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
 function resetPvpReadyState() {
   clearPendingPvpStartTimer();
   resetSkillCastSyncState();
+  rootFogOverlayVisible.value = false;
+  rootFogOverlayPhase.value = 'pre';
+  rootFogTimeline.durationMs = PVP_FOG_TRANSITION_MS;
+  rootFogTimeline.thinEndMs = 500;
+  rootFogTimeline.buildEndMs = 1300;
+  rootFogTimeline.holdEndMs = PVP_FOG_TRANSITION_MS;
   matchmakingStatus.localReady = false;
   matchmakingStatus.opponentReady = false;
   matchmakingStatus.startPending = false;
+  matchmakingStatus.startAtMs = 0;
+  matchmakingStatus.fogPending = false;
+  matchmakingStatus.fogEndAtMs = 0;
   battleEndBroadcasted = false;
   lastPvpBattleSeed = '';
 }
 
 function refreshPvpReadyMessage() {
   if (matchmakingStatus.phase !== 'matched') return;
+  if (matchmakingStatus.fogPending) {
+    matchmakingStatus.message = '雙方已準備，正在進入對戰...';
+    return;
+  }
   if (matchmakingStatus.startPending) {
-    matchmakingStatus.message = '雙方已準備，正在同步進入對戰...';
+    const startAt = Number(matchmakingStatus.startAtMs);
+    if (Number.isFinite(startAt) && startAt > 0) {
+      const remainMs = startAt - Date.now();
+      const remainSec = Math.max(1, Math.ceil(remainMs / 1000));
+      matchmakingStatus.message = remainMs > 0
+        ? `雙方已準備，${remainSec} 秒後開戰...`
+        : '雙方已準備，正在進入對戰...';
+      return;
+    }
+    matchmakingStatus.message = '雙方已準備，等待主機同步開戰時間...';
     return;
   }
   if (matchmakingStatus.localReady && matchmakingStatus.opponentReady) {
@@ -1483,20 +1876,124 @@ function refreshPvpReadyMessage() {
   matchmakingStatus.message = '配對成功，請準備對戰。';
 }
 
-function schedulePvpBattleStart(startAtMs = Date.now()) {
+async function logRootFogOverlayMetrics() {
+  await nextTick();
+  const overlayEl = rootFogOverlayRef.value;
+  const mountedAtRoot = Boolean(overlayEl && overlayEl.parentElement === document.body);
+  if (mountedAtRoot) {
+    console.info('[PvP Sync] FogOverlay mounted at root');
+  } else {
+    const parentTag = overlayEl?.parentElement?.tagName ?? 'unknown';
+    console.warn(`[PvP Sync] FogOverlay not mounted at root parent=${parentTag}`);
+  }
+  console.info(`[PvP Sync] FogOverlay viewport size = ${window.innerWidth}/${window.innerHeight}`);
+  if (overlayEl) {
+    const rect = overlayEl.getBoundingClientRect();
+    console.info(`[PvP Sync] FogOverlay rect = ${Math.round(rect.width)}x${Math.round(rect.height)}`);
+  }
+}
+
+function scheduleRootFogPhaseTimer(delayMs = 0, callback = null) {
+  const safeDelay = Math.max(0, Math.round(Number(delayMs) || 0));
+  const timerId = setTimeout(() => {
+    rootFogPhaseTimers.delete(timerId);
+    if (typeof callback === 'function') {
+      callback();
+    }
+  }, safeDelay);
+  rootFogPhaseTimers.add(timerId);
+}
+
+function resolveFogTimeline(durationMs = PVP_FOG_TRANSITION_MS) {
+  const totalMs = Math.max(1500, Math.min(2200, Math.round(Number(durationMs) || PVP_FOG_TRANSITION_MS)));
+  const thinEndMs = Math.max(420, Math.min(520, Math.round(totalMs * 0.28)));
+  const buildEndRaw = Math.round(totalMs * 0.72);
+  const buildEndMs = Math.max(thinEndMs + 500, Math.min(1300, Math.min(totalMs - 320, buildEndRaw)));
+  const holdEndMs = totalMs;
+  return {
+    totalMs,
+    thinEndMs,
+    buildEndMs,
+    holdEndMs
+  };
+}
+
+function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
+  if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
+  const fogDurationRaw = Number(options?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
+  const timeline = resolveFogTimeline(fogDurationRaw);
+  const fogDurationMs = timeline.totalMs;
+  const normalizedFogStartAt = Number.isFinite(Number(fogStartAtMs))
+    ? Number(fogStartAtMs)
+    : Date.now();
+  const nowMs = Date.now();
+  const suggestedBattleAt = Math.max(nowMs, normalizedFogStartAt + fogDurationMs);
+  const battleAt = Math.max(suggestedBattleAt, nowMs + fogDurationMs);
+  const delay = Math.max(fogDurationMs, battleAt - nowMs);
+  clearPendingPvpStartTimer();
+  rootFogTimeline.durationMs = fogDurationMs;
+  rootFogTimeline.thinEndMs = timeline.thinEndMs;
+  rootFogTimeline.buildEndMs = timeline.buildEndMs;
+  rootFogTimeline.holdEndMs = timeline.holdEndMs;
+  rootFogOverlayVisible.value = true;
+  rootFogOverlayPhase.value = 'pre';
+  matchmakingStatus.fogPending = true;
+  matchmakingStatus.fogEndAtMs = battleAt;
+  refreshPvpReadyMessage();
+  console.info(`[PvP Sync] 霧化轉場啟動 fogDuration=${fogDurationMs}ms battleDelay=${delay}ms thinEnd=${timeline.thinEndMs} buildEnd=${timeline.buildEndMs}`);
+  scheduleRootFogPhaseTimer(0, () => {
+    rootFogOverlayPhase.value = 'thin';
+    console.info('[PvP Sync] fog phase=thin');
+  });
+  scheduleRootFogPhaseTimer(timeline.thinEndMs, () => {
+    rootFogOverlayPhase.value = 'build';
+    console.info('[PvP Sync] fog phase=build');
+  });
+  scheduleRootFogPhaseTimer(timeline.buildEndMs, () => {
+    rootFogOverlayPhase.value = 'hold';
+    console.info('[PvP Sync] fog phase=hold');
+    console.info('[PvP Sync] fog reached full density');
+  });
+  if (delay === 0) {
+    console.info('[PvP Sync] now enterPvpBattle');
+    startPvpBattle();
+    return;
+  }
+  pendingPvpFogTimer = setTimeout(() => {
+    pendingPvpFogTimer = null;
+    console.info('[PvP Sync] now enterPvpBattle');
+    startPvpBattle();
+  }, delay);
+}
+
+function schedulePvpBattleStart(startAtMs = Date.now(), options = {}) {
   if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
   clearPendingPvpStartTimer();
   matchmakingStatus.startPending = true;
+  matchmakingStatus.fogPending = false;
+  matchmakingStatus.fogEndAtMs = 0;
+  const countdownMsRaw = Number(options?.countdownMs ?? PVP_READY_COUNTDOWN_MS);
+  const countdownMs = Math.max(1200, Math.min(7000, Math.round(countdownMsRaw)));
+  const fogDurationRaw = Number(options?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
+  const fogDurationMs = Math.max(1500, Math.min(2200, Math.round(fogDurationRaw)));
+  const safeStartAt = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : 0;
+  const nowMs = Date.now();
+  const absoluteDelay = safeStartAt > 0 ? (safeStartAt - nowMs) : Number.NaN;
+  const canUseAbsoluteDelay = Number.isFinite(absoluteDelay) && absoluteDelay >= 900 && absoluteDelay <= 7000;
+  const delay = canUseAbsoluteDelay
+    ? Math.round(absoluteDelay)
+    : countdownMs;
+  const resolvedStartAt = nowMs + Math.max(0, delay);
+  matchmakingStatus.startAtMs = resolvedStartAt;
   refreshPvpReadyMessage();
-  const safeStartAt = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : Date.now();
-  const delay = Math.max(0, Math.min(5000, safeStartAt - Date.now()));
+  console.info(`[PvP Sync] 排程開戰 source=${String(options?.source ?? 'unknown')} absoluteDelay=${Number.isFinite(absoluteDelay) ? Math.round(absoluteDelay) : -1} resolvedDelay=${delay} fogDuration=${fogDurationMs}`);
   if (delay === 0) {
-    startPvpBattle();
+    beginPvpFogTransition(resolvedStartAt, { fogDurationMs });
     return;
   }
   pendingPvpStartTimer = setTimeout(() => {
     pendingPvpStartTimer = null;
-    startPvpBattle();
+    beginPvpFogTransition(resolvedStartAt, { fogDurationMs });
   }, delay);
 }
 
@@ -1508,29 +2005,38 @@ function checkBothReady(reason = '') {
 
   const isHost = isCurrentPlayerMatchHost();
   console.info(`[PvP Sync] isHost狀態: ${isHost ? 'host' : 'guest'}`);
+  matchmakingStatus.startPending = true;
+  matchmakingStatus.startAtMs = Date.now() + PVP_READY_COUNTDOWN_MS;
+  refreshPvpReadyMessage();
   if (!isHost) return;
 
   const seed = generatePvpBattleSeed();
   lastPvpBattleSeed = seed;
-  const startAt = Date.now();
-  matchmakingStatus.startPending = true;
-  refreshPvpReadyMessage();
+  const startAt = Date.now() + PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS;
   console.info(`[PvP Sync] host送出start_battle seed=${seed}`);
   void sendPvpRealtimeEvent('start_battle', {
     mode: 'pvp',
     seed,
-    startAt
+    startAt,
+    countdownMs: PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS,
+    fogDurationMs: PVP_FOG_TRANSITION_MS
   });
-  schedulePvpBattleStart(startAt);
+  schedulePvpBattleStart(startAt, {
+    source: 'host_local',
+    countdownMs: PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS,
+    fogDurationMs: PVP_FOG_TRANSITION_MS
+  });
 }
 
 function markLocalPlayerReady() {
   if (matchmakingStatus.phase !== 'matched') return;
-  if (matchmakingStatus.localReady) return;
-  matchmakingStatus.localReady = true;
+  if (matchmakingStatus.startPending) return;
+  const nextReady = !matchmakingStatus.localReady;
+  matchmakingStatus.localReady = nextReady;
   refreshPvpReadyMessage();
-  console.info('[PvP Sync] 本機送出ready（單次）');
-  void sendPvpRealtimeEvent('ready', { ready: true });
+  console.info(`[PvP Sync] 本機${nextReady ? '送出ready' : '取消ready'}`);
+  void sendPvpRealtimeEvent('ready', { ready: nextReady });
+  if (!nextReady) return;
   checkBothReady('local_ready');
 }
 
@@ -1661,6 +2167,30 @@ async function sendPvpRealtimeEvent(type, payload = {}) {
   }
 }
 
+function broadcastHostBattleEndNow(reason = 'skill_cast_complete') {
+  if (!isCurrentBattlePvP.value) return;
+  if (!isCurrentPlayerMatchHost()) return;
+  if (battleEndBroadcasted) return;
+
+  const hostPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+  const guestPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const battleEndId = `battle-end-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  battleEndBroadcasted = true;
+  console.info(`[PvP Sync] host立即送出battle_end battleEndId=${battleEndId} reason=${reason}`);
+  void sendPvpRealtimeEvent('battle_end', {
+    battleEndId,
+    hostPlayerId,
+    guestPlayerId,
+    hostHp: Math.max(0, Math.round(Number(playerHp.value ?? 0))),
+    guestHp: Math.max(0, Math.round(Number(opponentHp.value ?? 0))),
+    endedAtMs: Date.now()
+  });
+
+  if (gameState.value !== 'gameResult') {
+    gameState.value = 'gameResult';
+  }
+}
+
 function maybeBroadcastHostBattleEnd(reason = 'state_watch') {
   if (!isCurrentBattlePvP.value) return;
   if (currentScreen.value !== 'battle') return;
@@ -1696,13 +2226,15 @@ async function handlePlayerSkillUse(skill = null) {
 
   const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
   const opponentPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const targetRule = resolveSkillTargetRule(resolvedSkill);
+  const targetPlayerIdForCast = targetRule === 'self' ? localPlayerId : opponentPlayerId;
   const requestCastId = `cast-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
   if (isCurrentPlayerMatchHost()) {
     const castPayload = buildHostAuthoritativeSkillCastPayload({
       skillId: resolvedSkill.id,
       casterPlayerId: localPlayerId,
-      targetPlayerId: opponentPlayerId,
+      targetPlayerId: targetPlayerIdForCast,
       castId: requestCastId
     });
     dispatchHostSkillCast(castPayload, 'local_host_cast');
@@ -1755,6 +2287,10 @@ function handlePvpRealtimeEvent(packet = {}) {
   if (type === 'ready') {
     if (matchmakingStatus.phase !== 'matched') return;
     const isReady = normalizedPacket?.payload?.ready !== false;
+    if (matchmakingStatus.startPending && !isReady) {
+      console.info('[PvP Sync] 倒數已開始，忽略對手取消ready');
+      return;
+    }
     matchmakingStatus.opponentReady = Boolean(isReady);
     if (matchmakingStatus.opponentReady) {
       console.info('[PvP Sync] 設定opponentReady=true');
@@ -1769,12 +2305,18 @@ function handlePvpRealtimeEvent(packet = {}) {
     const mode = String(normalizedPacket?.payload?.mode ?? '').trim().toLowerCase();
     if (mode && mode !== 'pvp') return;
     const startAt = Number(normalizedPacket?.payload?.startAt ?? Date.now());
+    const countdownMs = Number(normalizedPacket?.payload?.countdownMs ?? (PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS));
+    const fogDurationMs = Number(normalizedPacket?.payload?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
     const seed = String(normalizedPacket?.payload?.seed ?? '').trim();
     if (seed) {
       lastPvpBattleSeed = seed;
     }
     console.info(`[PvP Sync] 收到start_battle，進入PvP seed=${seed || 'none'}`);
-    schedulePvpBattleStart(startAt);
+    schedulePvpBattleStart(startAt, {
+      source: 'remote_packet',
+      countdownMs,
+      fogDurationMs
+    });
     return;
   }
 
@@ -1833,6 +2375,8 @@ function handlePvpRealtimeEvent(packet = {}) {
     clearSkillCastSyncTimers();
     queuedSkillCasts.length = 0;
     queuedSkillCastIds.clear();
+    appliedSkillCastDamageIds.clear();
+    appliedSkillCastHitEventIds.clear();
     const castToClear = activeSkillCast;
     activeSkillCast = null;
     awaitingLocalSkillCastAck = false;
@@ -1852,6 +2396,21 @@ function handlePvpRealtimeEvent(packet = {}) {
     forceOpponentDefeat();
   }
 }
+
+watch(
+  isRootFogOverlayVisible,
+  (visible, prevVisible) => {
+    if (visible) {
+      console.info('[PvP Sync] fog_transition start');
+      void logRootFogOverlayMetrics();
+      return;
+    }
+    if (prevVisible) {
+      console.info('[PvP Sync] fog_transition complete');
+    }
+  },
+  { flush: 'post' }
+);
 
 function resolveBgmSceneId(screen) {
   if (screen === 'battle') {
@@ -2167,6 +2726,10 @@ function startPvpBattle() {
   clearPendingPvpStartTimer();
   resetSkillCastSyncState();
   battleEndBroadcasted = false;
+  matchmakingStatus.startPending = false;
+  matchmakingStatus.startAtMs = 0;
+  matchmakingStatus.fogPending = false;
+  matchmakingStatus.fogEndAtMs = 0;
   console.info(`[PvP Sync] 進入PvP戰鬥流程 seed=${lastPvpBattleSeed || 'none'}`);
   battleSessionMode.value = 'pvp';
   selectedStageId.value = STAGE_IDS.STAGE_02;
@@ -2176,6 +2739,16 @@ function startPvpBattle() {
   battleMenuView.value = 'main';
   setPaused(false);
   initGame();
+  void nextTick().then(() => {
+    if (!rootFogOverlayVisible.value) return;
+    console.info('[PvP Sync] fog fade out after battle mounted');
+    rootFogOverlayPhase.value = 'fade-out';
+    pendingRootFogFadeOutTimer = setTimeout(() => {
+      pendingRootFogFadeOutTimer = null;
+      rootFogOverlayVisible.value = false;
+      rootFogOverlayPhase.value = 'pre';
+    }, 320);
+  });
 }
 
 function openMatchmaking() {
