@@ -3,7 +3,7 @@
     <header class="settings-header">
       <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
       <h2 class="settings-title">技能配置</h2>
-      <div class="settings-account">{{ isUnlocked ? `${selectedIds.length} / ${maxSlots}` : '未解鎖' }}</div>
+      <div aria-hidden="true"></div>
     </header>
 
     <article class="settings-card pixel-border">
@@ -14,6 +14,10 @@
         <p class="skill-config-note">技能系統建置中，近期會開放解鎖與裝備功能。</p>
       </template>
     </article>
+
+    <div class="screen-bottom-status pixel-border">
+      {{ isUnlocked ? `${selectedIds.length} / ${maxSlots}` : '未解鎖' }}
+    </div>
   </section>
 </template>
 

@@ -5,7 +5,7 @@
         {{ selectedTrackKey ? '科目選單' : '返回' }}
       </button>
       <h2 class="study-title">讀書強化</h2>
-      <div class="study-points pixel-border">KP {{ state.knowledgePoints }}</div>
+      <div aria-hidden="true"></div>
     </header>
 
     <div v-if="!selectedTrackKey" class="study-subhome">
@@ -83,6 +83,10 @@
           </button>
         </div>
       </article>
+    </div>
+
+    <div class="screen-bottom-status screen-bottom-status-study pixel-border">
+      KP {{ state.knowledgePoints }}
     </div>
   </section>
 </template>

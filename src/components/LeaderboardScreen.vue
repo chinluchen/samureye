@@ -3,7 +3,7 @@
     <header class="settings-header">
       <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
       <h2 class="settings-title">天梯排行</h2>
-      <div class="settings-account">Beta</div>
+      <div aria-hidden="true"></div>
     </header>
 
     <article class="settings-card pixel-border leaderboard-card">
