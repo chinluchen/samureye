@@ -28,8 +28,10 @@
       v-else-if="currentScreen === 'matchmaking'"
       :status="matchmakingStatus"
       :capabilities="matchCapabilities"
+      :game-center-status="gameCenterStatus"
+      :game-center-session="gameCenterSession"
       @back-home="goHomeFromMatchmaking"
-      @sign-in="syncMatchmakingAccount"
+      @open-settings="goSettingsFromMatchmaking"
       @start-match="startPvPMatchmaking"
       @cancel-match="cancelPvPMatchmaking"
       @ready-battle="markLocalPlayerReady"
@@ -62,6 +64,7 @@
           :game-state="gameState"
           :is-splitting="isSplitting"
           :target-transform="targetTransform"
+          :reticle-offset-transform="reticleOffsetTransform"
           :announcement-text="announcementText"
         />
 
@@ -145,16 +148,19 @@
       :sfx-enabled="sfxEnabled"
       :bgm-enabled="bgmEnabled"
       :vibration-enabled="vibrationEnabled"
-      :account-name="accountState.name"
+      :game-center-status="gameCenterStatus"
+      :pvp-nickname="pvpNickname"
+      :game-center-session="gameCenterSession"
       @back-home="goHomeFromSettings"
       @volume-change="setAudioVolume"
       @sfx-volume-change="setSfxVolume"
       @sfx-toggle="setSfxEnabled"
       @bgm-toggle="setBgmEnabled"
       @vibration-toggle="setVibrationEnabled"
-      @login-account="loginAccount"
-      @logout-account="logoutAccount"
-      @delete-account="deleteAccount"
+      @gamecenter-connect="connectGameCenterFromSettings"
+      @gamecenter-refresh="refreshGameCenterFromSettings"
+      @gamecenter-clear-local="clearLocalGameCenterBinding"
+      @pvp-nickname-change="setPvpNickname"
     />
 
     <LeaderboardScreen
@@ -180,49 +186,22 @@
       @toggle-skill="toggleSkillEquip"
     />
 
-    <div v-if="isAccountDialogOpen" class="battle-menu-overlay" @click.self="closeAccountDialog">
-      <div class="battle-menu-card pixel-border account-dialog-card">
-        <h3 class="battle-menu-title">
-          {{ accountDialogMode === 'login' ? '登入帳號' : '刪除帳號' }}
-        </h3>
+  </main>
 
-        <template v-if="accountDialogMode === 'login'">
-          <label class="battle-setting-row">
-            <span class="battle-setting-label">帳號名稱</span>
-            <input
-              v-model.trim="accountInputName"
-              type="text"
-              class="account-dialog-input"
-              maxlength="20"
-              placeholder="例如：SAMUREYE / Player"
-              @keydown.enter.prevent="confirmAccountDialog"
-            >
-          </label>
-          <p class="account-dialog-note">輸入 Player 可啟用進度鎖定測試。</p>
-        </template>
-
-        <template v-else>
-          <p class="account-dialog-note">
-            {{ hasActiveAccount ? `確定刪除帳號「${accountState.name}」嗎？` : '目前沒有已登入帳號可刪除。' }}
-          </p>
-        </template>
-
-        <div class="account-dialog-actions">
-          <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="closeAccountDialog">
-            取消
-          </button>
-          <button
-            type="button"
-            class="battle-menu-button"
-            :disabled="isAccountDialogConfirmDisabled"
-            @click="confirmAccountDialog"
-          >
-            {{ accountDialogMode === 'login' ? '登入' : '刪除' }}
-          </button>
-        </div>
+  <Teleport to="body">
+    <div
+      v-if="isRootCountdownOverlayVisible"
+      ref="rootCountdownOverlayRef"
+      class="global-countdown-overlay"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div class="global-countdown-content">
+        <p class="global-countdown-title">即將開戰</p>
+        <p :key="`countdown-${rootCountdownNumber}`" class="global-countdown-number">{{ rootCountdownNumber }}</p>
       </div>
     </div>
-  </main>
+  </Teleport>
 
   <Teleport to="body">
     <div
@@ -248,10 +227,12 @@ import { characters } from './data/characters.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
 import { buildHostAuthoritativeSkillCast, resolveSkillEffectType, resolveSkillTargetRule } from './engines/SkillEngine.js';
+import { createSkillLifecycleEngine } from './engines/SkillLifecycleEngine.js';
 import { createSkillVisualEngine } from './engines/SkillVisualEngine.js';
+import { createStatusEffectEngine } from './engines/StatusEffectEngine.js';
 import { useBattleGame } from './composables/useBattleGame.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
-import { drawSlashLine, showDamagePopup, triggerImpactShake } from './utils/effects.js';
+import { drawSlashLine, showDamagePopup, showFeedbackPop, triggerImpactShake } from './utils/effects.js';
 import { sfx } from './services/SoundEngine.js';
 import { triggerHaptic } from './services/hapticsService.js';
 import { createMatchService } from './services/match/MatchService.js';
@@ -311,6 +292,7 @@ let appIsInBackground = false;
 let shouldAutoResumeBattleAfterForeground = false;
 let localPvpEventSeq = 0;
 const remotePvpEventSeqByPlayer = new Map();
+const remotePvpDisplayNameByPlayer = new Map();
 let pendingPvpStartTimer = null;
 let pendingPvpFogTimer = null;
 let pendingRootFogFadeOutTimer = null;
@@ -331,6 +313,10 @@ const activeSkillAnimation = ref(null);
 const PVP_READY_COUNTDOWN_MS = 3200;
 const PVP_START_GUARD_MS = 350;
 const PVP_FOG_TRANSITION_MS = 1800;
+const rootCountdownOverlayRef = ref(null);
+const countdownNowMs = ref(Date.now());
+let rootCountdownTimer = null;
+let lastLoggedCountdownTick = null;
 const rootFogOverlayRef = ref(null);
 const rootFogOverlayVisible = ref(false);
 const rootFogOverlayPhase = ref('pre');
@@ -380,6 +366,46 @@ const skillVisualEngine = createSkillVisualEngine({
   triggerHaptic,
   playAudioKey: playSkillAudioByKey
 });
+
+function showCasterSkillFeedback(text = '', { success = true } = {}) {
+  const message = String(text ?? '').trim() || (success ? '技能施放成功' : '技能施放失敗');
+  const color = success ? '#22c55e' : '#ef4444';
+  showFeedbackPop(message, color, window.innerWidth / 2, window.innerHeight / 2);
+}
+
+function showLifecycleCastFeedback(cast = null) {
+  if (!cast || typeof cast !== 'object') return;
+  if (String(cast?.localRole ?? '').trim() !== 'caster') return;
+  const castResult = resolveCastResultForLifecycle(cast);
+  const lifecycleFeedback = cast?.lifecycle?.castFeedback && typeof cast.lifecycle.castFeedback === 'object'
+    ? cast.lifecycle.castFeedback
+    : (cast?.skillDefinition?.lifecycle?.castFeedback ?? {});
+  const successText = String(lifecycleFeedback?.success ?? '').trim() || '技能施放成功';
+  const failedText = String(lifecycleFeedback?.failed ?? '').trim()
+    || String(castResult.failReason ?? '').trim()
+    || '技能施放失敗';
+  const isSuccess = castResult.success !== false;
+  showCasterSkillFeedback(isSuccess ? successText : failedText, { success: isSuccess });
+}
+
+const skillLifecycleEngine = createSkillLifecycleEngine({
+  onStage: (event) => {
+    if (!event || typeof event !== 'object') return;
+    const detail = event.detail && typeof event.detail === 'object'
+      ? Object.entries(event.detail)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(' ')
+      : '';
+    const suffix = detail ? ` ${detail}` : '';
+    console.info(`[SkillLifecycle] stage=${event.stage} castId=${event.castId || '-'} skillId=${event.skillId || '-'} role=${event.localRole || '-'} success=${String(event.success)} outcome=${event.outcome || '-'}${suffix}`);
+  }
+});
+
+function emitSkillLifecycleStage(stage = '', cast = null, detail = {}) {
+  return skillLifecycleEngine.emitStage(stage, cast, detail);
+}
+
+let statusEffectEngine = null;
 const studyState = reactive({
   knowledgePoints: 0,
   answered: 0,
@@ -392,37 +418,33 @@ const studyState = reactive({
   }
 });
 const STUDY_SAVE_KEY = 'samureye.study.v1';
-const ACCOUNT_SAVE_KEY = 'samureye.account.v1';
 const SETTINGS_SAVE_KEY = 'samureye.settings.v1';
-const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, ACCOUNT_SAVE_KEY, SETTINGS_SAVE_KEY];
+const GAME_CENTER_SESSION_SAVE_KEY = 'samureye.gamecenter.session.v1';
+const LEGACY_ACCOUNT_SAVE_KEY = 'samureye.account.v1';
+const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, LEGACY_ACCOUNT_SAVE_KEY, SETTINGS_SAVE_KEY, GAME_CENTER_SESSION_SAVE_KEY];
 const STUDY_PROFILE_SCHEMA_VERSION = 4;
 const SETTINGS_SCHEMA_VERSION = 1;
+const GAME_CENTER_SESSION_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
-const PLAYER_TEST_ACCOUNT_KEY = 'player';
-const ADMIN_TEST_ACCOUNT_KEY = 'samureye';
 const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
-const accountState = reactive({
-  name: ''
+let hasHydratedGameCenterSession = false;
+let gameCenterAuthPromise = null;
+const GAME_CENTER_STATUS_SET = ['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'];
+const gameCenterStatus = ref('unknown');
+const gameCenterSession = reactive({
+  isAuthenticated: false,
+  playerId: '',
+  displayName: '',
+  alias: '',
+  gameCenterId: '',
+  lastAuthenticatedAt: 0
 });
-const isAccountDialogOpen = ref(false);
-const accountDialogMode = ref('login');
-const accountInputName = ref('');
+const pvpNickname = ref('');
 const selectedStageId = ref(STAGE_IDS.STAGE_02);
-const isPlayerTestAccount = computed(() => {
-  return (accountState.name || '').trim().toLowerCase() === PLAYER_TEST_ACCOUNT_KEY;
-});
-const isAdminTestAccount = computed(() => {
-  return (accountState.name || '').trim().toLowerCase() === ADMIN_TEST_ACCOUNT_KEY;
-});
-const hasActiveAccount = computed(() => (accountState.name || '').trim().length > 0);
-const isAccountDialogConfirmDisabled = computed(() => {
-  if (accountDialogMode.value === 'login') return (accountInputName.value || '').trim().length === 0;
-  return !hasActiveAccount.value;
-});
 const selectablePlayerSkills = computed(() => {
   return skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
 });
@@ -503,6 +525,7 @@ const {
   isEnemyTurn,
   cutsceneSkillName,
   targetTransform,
+  reticleOffsetTransform,
   processSlash,
   useSkill: useSkillCore,
   initGame,
@@ -517,14 +540,70 @@ const {
   finishSkillCinematic,
   applyOpponentDamage,
   applyRemoteDamage,
-  forceOpponentDefeat
+  forceOpponentDefeat,
+  setReticleOffset,
+  clearReticleOffset
 } = game;
+
+statusEffectEngine = createStatusEffectEngine({
+  applyReticleOffset: ({ x = 0, y = 0 } = {}) => {
+    setReticleOffset({ x, y });
+  },
+  clearReticleOffset: () => {
+    clearReticleOffset();
+  },
+  showCasterFeedback: (text, context = {}) => {
+    showCasterSkillFeedback(text, {
+      success: context?.success !== false
+    });
+  },
+  onLog: (message) => {
+    if (!message) return;
+    console.info(message);
+  },
+  onEffectStart: (effect) => {
+    emitSkillLifecycleStage('effect_duration', {
+      castId: String(effect?.castId ?? '').trim(),
+      skillId: String(effect?.skillId ?? '').trim(),
+      castResult: { success: true, outcome: 'success', failReason: '' }
+    }, {
+      source: 'status_effect_start',
+      statusEffectId: String(effect?.statusEffectId ?? '').trim(),
+      durationMs: Math.max(0, Math.round(Number(effect?.durationMs ?? 0)))
+    });
+  },
+  onEffectEnd: (effect) => {
+    emitSkillLifecycleStage('effect_end', {
+      castId: String(effect?.castId ?? '').trim(),
+      skillId: String(effect?.skillId ?? '').trim(),
+      castResult: { success: true, outcome: 'success', failReason: '' }
+    }, {
+      source: 'status_effect_end',
+      statusEffectId: String(effect?.statusEffectId ?? '').trim(),
+      reason: String(effect?.reason ?? '').trim()
+    });
+  }
+});
 
 const selectedCharacter = computed(() => {
   return characters.find(item => item.id === playerConfig.characterId) ?? characters[0];
 });
 const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
+const isRootCountdownOverlayVisible = computed(() => {
+  return currentScreen.value === 'matchmaking'
+    && matchmakingStatus.phase === 'matched'
+    && Boolean(matchmakingStatus.startPending)
+    && !Boolean(matchmakingStatus.fogPending)
+    && Number.isFinite(Number(matchmakingStatus.startAtMs))
+    && Number(matchmakingStatus.startAtMs) > 0;
+});
+const rootCountdownNumber = computed(() => {
+  if (!isRootCountdownOverlayVisible.value) return 3;
+  const remainMs = Number(matchmakingStatus.startAtMs) - countdownNowMs.value;
+  if (remainMs <= 0) return 1;
+  return Math.min(9, Math.max(1, Math.ceil(remainMs / 1000)));
+});
 const isRootFogOverlayVisible = computed(() => {
   return rootFogOverlayVisible.value;
 });
@@ -549,8 +628,6 @@ const isTutorialGuideActive = computed(() => {
 });
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
-  if (isAdminTestAccount.value) return stageList.map(stage => stage.id);
-
   const unlocked = new Set(stageList.filter(stage => stage.unlockByDefault).map(stage => stage.id));
   const cleared = clearedStageSet.value;
   let changed = true;
@@ -575,18 +652,12 @@ const isSkillLoadoutUnlocked = computed(() => {
   return clearedStageSet.value.has(STAGE_IDS.STAGE_01);
 });
 const unlockedTrackKeys = computed(() => {
-  if (!isPlayerTestAccount.value) return ['optometry', 'optics', 'contactLens', 'other'];
-
-  const cleared = clearedStageSet.value;
-  const keys = ['optometry'];
-  if (cleared.has(STAGE_IDS.STAGE_01)) keys.push('optics');
-  if (cleared.has(STAGE_IDS.STAGE_02)) keys.push('contactLens');
-  if (cleared.has(STAGE_IDS.STAGE_03)) keys.push('other');
-  return keys;
+  return ['optometry', 'optics', 'contactLens', 'other'];
 });
 const currentStageConfig = computed(() => {
   return stageList.find(stage => stage.id === selectedStageId.value) ?? stageList[0];
 });
+const isGameCenterProvider = computed(() => matchCapabilities.provider === 'gamecenter');
 
 const selectedSkills = computed(() => {
   const skillMap = new Map(normalizedSkillPool.value.map(skill => [skill.id, skill]));
@@ -819,6 +890,16 @@ function sanitizeBoolean(value, fallback = false) {
   return fallback;
 }
 
+function sanitizePvpNickname(value, fallback = '') {
+  const normalizedFallback = String(fallback ?? '').trim();
+  const raw = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return normalizedFallback;
+  const clipped = Array.from(raw).slice(0, 16).join('').trim();
+  return clipped || normalizedFallback;
+}
+
 function normalizeTrack(rawTrack = {}) {
   return {
     level: Math.max(0, Math.floor(sanitizeNumber(rawTrack.level, 0))),
@@ -922,7 +1003,8 @@ function normalizeRuntimeSettings(rawData = {}) {
     sfxVolume: Math.max(0, Math.min(1, sanitizeNumber(data.sfxVolume, sfxVolume.value))),
     sfxEnabled: sanitizeBoolean(data.sfxEnabled, sfxEnabled.value),
     bgmEnabled: sanitizeBoolean(data.bgmEnabled, bgmEnabled.value),
-    vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value)
+    vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value),
+    pvpNickname: sanitizePvpNickname(data.pvpNickname, pvpNickname.value)
   };
 }
 
@@ -932,7 +1014,8 @@ function snapshotRuntimeSettings() {
     sfxVolume: sfxVolume.value,
     sfxEnabled: sfxEnabled.value,
     bgmEnabled: bgmEnabled.value,
-    vibrationEnabled: vibrationEnabled.value
+    vibrationEnabled: vibrationEnabled.value,
+    pvpNickname: sanitizePvpNickname(pvpNickname.value)
   };
 }
 
@@ -966,6 +1049,16 @@ function setVibrationEnabled(enabled) {
   persistRuntimeSettingsIfReady();
 }
 
+function setPvpNickname(value = '') {
+  pvpNickname.value = sanitizePvpNickname(value);
+  applyLocalPvpDisplayNameToMatchStatus();
+  applyOpponentPvpDisplayNameToMatchStatus();
+  if (matchmakingStatus.phase === 'matched' || matchmakingStatus.phase === 'searching') {
+    void broadcastLocalPvpProfileSync('nickname_changed');
+  }
+  persistRuntimeSettingsIfReady();
+}
+
 async function loadRuntimeSettings() {
   await ensureStorageReady();
 
@@ -989,6 +1082,7 @@ async function loadRuntimeSettings() {
     setSfxEnabled(normalized.sfxEnabled);
     setBgmEnabled(normalized.bgmEnabled);
     setVibrationEnabled(normalized.vibrationEnabled);
+    setPvpNickname(normalized.pvpNickname);
   } catch (error) {
     console.warn('Failed to load runtime settings:', error);
   }
@@ -1007,9 +1101,11 @@ async function saveRuntimeSettings() {
 }
 
 function getActiveProfileKey() {
-  const name = (accountState.name || '').trim().toLowerCase();
-  if (!name) return 'guest';
-  return `acct:${name}`;
+  if (gameCenterSession.isAuthenticated) {
+    const playerId = String(gameCenterSession.playerId || gameCenterSession.gameCenterId || '').trim();
+    if (playerId) return `gc:${playerId}`;
+  }
+  return 'guest';
 }
 
 async function ensureStorageReady() {
@@ -1085,20 +1181,6 @@ async function loadStudyStateForActiveAccount() {
   await saveAllStudyProfiles(allProfiles);
 }
 
-async function loadAccountState() {
-  await ensureStorageReady();
-
-  try {
-    const raw = await appStorage.getItem(ACCOUNT_SAVE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.version !== 1 || typeof parsed.data !== 'object') return;
-    accountState.name = typeof parsed.data.name === 'string' ? parsed.data.name : '';
-  } catch (error) {
-    console.warn('Failed to load account state:', error);
-  }
-}
-
 async function saveStudyStateForActiveAccount() {
   const allProfiles = await loadAllStudyProfiles();
   const profileKey = getActiveProfileKey();
@@ -1106,24 +1188,259 @@ async function saveStudyStateForActiveAccount() {
   await saveAllStudyProfiles(allProfiles);
 }
 
-async function saveAccountState() {
+function resolveLocalPvpDisplayName() {
+  const nickname = sanitizePvpNickname(pvpNickname.value);
+  if (nickname) return nickname;
+  const gameCenterName = String(gameCenterSession.displayName || gameCenterSession.alias || '').trim();
+  if (gameCenterName) return gameCenterName;
+  const profileGcName = String(matchmakingStatus.localProfile?.gameCenterDisplayName ?? '').trim();
+  if (profileGcName) return profileGcName;
+  const profileName = String(matchmakingStatus.localProfile?.displayName ?? '').trim();
+  if (profileName) return profileName;
+  return 'SAMUREYE';
+}
+
+function applyLocalPvpDisplayNameToMatchStatus() {
+  if (!matchmakingStatus.localProfile || typeof matchmakingStatus.localProfile !== 'object') return;
+  const baseGcName = String(matchmakingStatus.localProfile.gameCenterDisplayName ?? matchmakingStatus.localProfile.displayName ?? '').trim();
+  if (baseGcName) {
+    matchmakingStatus.localProfile.gameCenterDisplayName = baseGcName;
+  }
+  matchmakingStatus.localProfile.displayName = resolveLocalPvpDisplayName();
+}
+
+function applyOpponentPvpDisplayNameToMatchStatus() {
+  if (!matchmakingStatus.opponentProfile || typeof matchmakingStatus.opponentProfile !== 'object') return;
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const baseGcName = String(matchmakingStatus.opponentProfile.gameCenterDisplayName ?? matchmakingStatus.opponentProfile.displayName ?? '').trim() || '對手連線中';
+  matchmakingStatus.opponentProfile.gameCenterDisplayName = baseGcName;
+  const customName = opponentId ? sanitizePvpNickname(remotePvpDisplayNameByPlayer.get(opponentId), '') : '';
+  matchmakingStatus.opponentProfile.displayName = customName || baseGcName;
+}
+
+async function broadcastLocalPvpProfileSync(reason = 'unknown') {
+  if (matchmakingStatus.phase !== 'matched' && matchmakingStatus.phase !== 'searching') return;
+  const displayName = resolveLocalPvpDisplayName();
+  const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+  if (!displayName || !localPlayerId) return;
+  await sendPvpRealtimeEvent('profile_sync', {
+    displayName,
+    playerId: localPlayerId,
+    reason: String(reason || '').trim()
+  });
+}
+
+function normalizeGameCenterStatus(value = 'unknown') {
+  const text = String(value || '').trim().toLowerCase();
+  if (GAME_CENTER_STATUS_SET.includes(text)) return text;
+  return 'unknown';
+}
+
+function sanitizeGameCenterTimestamp(value = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+function normalizeGameCenterSession(raw = {}) {
+  const next = raw && typeof raw === 'object' ? raw : {};
+  return {
+    isAuthenticated: Boolean(next.isAuthenticated),
+    playerId: String(next.playerId ?? '').trim(),
+    displayName: String(next.displayName ?? '').trim(),
+    alias: String(next.alias ?? '').trim(),
+    gameCenterId: String(next.gameCenterId ?? '').trim(),
+    lastAuthenticatedAt: sanitizeGameCenterTimestamp(next.lastAuthenticatedAt)
+  };
+}
+
+function getGameCenterSessionSnapshot() {
+  return normalizeGameCenterSession(gameCenterSession);
+}
+
+async function saveGameCenterSessionCache() {
+  if (!hasHydratedGameCenterSession) return;
   const payload = {
-    version: 1,
-    data: {
-      name: accountState.name
-    }
+    version: GAME_CENTER_SESSION_SCHEMA_VERSION,
+    data: getGameCenterSessionSnapshot()
   };
   try {
-    await appStorage.setItem(ACCOUNT_SAVE_KEY, JSON.stringify(payload));
+    await appStorage.setItem(GAME_CENTER_SESSION_SAVE_KEY, JSON.stringify(payload));
   } catch (error) {
-    console.warn('Failed to save account state:', error);
+    console.warn('Failed to save Game Center session:', error);
   }
 }
 
-function getPreferredDisplayName() {
-  const name = (accountState.name || '').trim();
-  if (!name) return 'SAMUREYE';
-  return name;
+function applyGameCenterSession(nextRaw = {}, { status = null, persist = true } = {}) {
+  const normalized = normalizeGameCenterSession(nextRaw);
+  const prev = getGameCenterSessionSnapshot();
+  const nextStatus = normalizeGameCenterStatus(status ?? (normalized.isAuthenticated ? 'authenticated' : 'unauthenticated'));
+
+  gameCenterSession.isAuthenticated = normalized.isAuthenticated;
+  gameCenterSession.playerId = normalized.playerId;
+  gameCenterSession.displayName = normalized.displayName;
+  gameCenterSession.alias = normalized.alias;
+  gameCenterSession.gameCenterId = normalized.gameCenterId;
+  gameCenterSession.lastAuthenticatedAt = normalized.lastAuthenticatedAt;
+  gameCenterStatus.value = nextStatus;
+
+  const changed = prev.isAuthenticated !== normalized.isAuthenticated
+    || prev.playerId !== normalized.playerId
+    || prev.displayName !== normalized.displayName
+    || prev.alias !== normalized.alias
+    || prev.gameCenterId !== normalized.gameCenterId
+    || prev.lastAuthenticatedAt !== normalized.lastAuthenticatedAt;
+
+  if (changed && persist) {
+    void saveGameCenterSessionCache();
+  }
+}
+
+function buildGameCenterSessionFromProfile(profile = {}, { isAuthenticated = false } = {}) {
+  const playerId = String(profile?.id ?? '').trim();
+  const gameCenterId = String(profile?.gameCenterId ?? '').trim();
+  const displayName = String(profile?.gameCenterDisplayName ?? profile?.displayName ?? '').trim();
+  const alias = displayName;
+  const keepTimestamp = sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt);
+  return normalizeGameCenterSession({
+    isAuthenticated,
+    playerId,
+    displayName,
+    alias,
+    gameCenterId,
+    lastAuthenticatedAt: isAuthenticated ? (keepTimestamp || Date.now()) : keepTimestamp
+  });
+}
+
+function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
+  if (!isGameCenterProvider.value) return;
+  const phase = String(nextStatus.phase ?? '').trim().toLowerCase();
+  const localProfile = nextStatus.localProfile && typeof nextStatus.localProfile === 'object'
+    ? nextStatus.localProfile
+    : {};
+  const candidate = buildGameCenterSessionFromProfile(localProfile, { isAuthenticated: true });
+  const hasIdentity = Boolean(candidate.playerId || candidate.gameCenterId);
+
+  if (hasIdentity) {
+    const wasAuthenticated = Boolean(gameCenterSession.isAuthenticated);
+    const previousTimestamp = sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt);
+    applyGameCenterSession({
+      ...candidate,
+      isAuthenticated: true,
+      lastAuthenticatedAt: previousTimestamp || Date.now()
+    }, { status: 'authenticated' });
+    if (!wasAuthenticated) {
+      console.info('GameCenter session restored');
+    }
+    return;
+  }
+
+  if (phase === 'auth_required') {
+    applyGameCenterSession({
+      isAuthenticated: false,
+      playerId: '',
+      displayName: '',
+      alias: '',
+      gameCenterId: '',
+      lastAuthenticatedAt: sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt)
+    }, { status: 'unauthenticated' });
+    return;
+  }
+
+  if (phase === 'error') {
+    gameCenterStatus.value = 'error';
+  }
+}
+
+async function loadGameCenterSessionCache() {
+  await ensureStorageReady();
+  try {
+    const raw = await appStorage.getItem(GAME_CENTER_SESSION_SAVE_KEY);
+    if (!raw) {
+      hasHydratedGameCenterSession = true;
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    const data = parsed?.version === GAME_CENTER_SESSION_SCHEMA_VERSION && parsed?.data && typeof parsed.data === 'object'
+      ? parsed.data
+      : parsed;
+    const normalized = normalizeGameCenterSession(data);
+    const restoredStatus = normalized.isAuthenticated ? 'authenticated' : 'unauthenticated';
+    applyGameCenterSession(normalized, { status: restoredStatus, persist: false });
+    if (normalized.isAuthenticated) {
+      console.info('GameCenter session restored');
+    }
+  } catch (error) {
+    console.warn('Failed to load Game Center session:', error);
+  } finally {
+    hasHydratedGameCenterSession = true;
+  }
+}
+
+async function ensureGameCenterAuthenticated({ source = 'unknown', interactive = false, force = false } = {}) {
+  if (!isGameCenterProvider.value) {
+    gameCenterStatus.value = 'authenticated';
+    return getGameCenterSessionSnapshot();
+  }
+
+  if (!interactive && !force && gameCenterSession.isAuthenticated) {
+    gameCenterStatus.value = 'authenticated';
+    return getGameCenterSessionSnapshot();
+  }
+
+  if (gameCenterAuthPromise) return gameCenterAuthPromise;
+  gameCenterStatus.value = 'authenticating';
+  gameCenterAuthPromise = (async () => {
+    try {
+      await matchService.signIn({
+        displayName: resolveLocalPvpDisplayName(),
+        silent: !interactive
+      });
+      syncGameCenterSessionFromMatchStatus(matchmakingStatus);
+      if (interactive && gameCenterSession.isAuthenticated) {
+        console.info('GameCenter authenticated from settings');
+      }
+      if (!gameCenterSession.isAuthenticated && gameCenterStatus.value !== 'error') {
+        gameCenterStatus.value = 'unauthenticated';
+      }
+    } catch (error) {
+      gameCenterStatus.value = 'error';
+      console.warn(`[GameCenter] ensureGameCenterAuthenticated failed (source=${source}):`, error);
+    }
+    return getGameCenterSessionSnapshot();
+  })();
+
+  try {
+    return await gameCenterAuthPromise;
+  } finally {
+    gameCenterAuthPromise = null;
+  }
+}
+
+async function connectGameCenterFromSettings() {
+  console.info('GameCenter settings connect clicked');
+  await ensureGameCenterAuthenticated({ source: 'settings_connect', interactive: true });
+}
+
+async function refreshGameCenterFromSettings() {
+  await ensureGameCenterAuthenticated({ source: 'settings_refresh', interactive: false, force: true });
+}
+
+async function clearLocalGameCenterBinding() {
+  await ensureStorageReady();
+  try {
+    await appStorage.removeItem(GAME_CENTER_SESSION_SAVE_KEY);
+  } catch (error) {
+    console.warn('Failed to clear Game Center session cache:', error);
+  }
+  applyGameCenterSession({
+    isAuthenticated: false,
+    playerId: '',
+    displayName: '',
+    alias: '',
+    gameCenterId: '',
+    lastAuthenticatedAt: 0
+  }, { status: 'unauthenticated', persist: false });
 }
 
 function applyMatchStatus(nextStatus = {}) {
@@ -1140,16 +1457,35 @@ function applyMatchStatus(nextStatus = {}) {
   };
   matchmakingStatus.opponentProfile = nextStatus.opponentProfile ?? null;
   matchmakingStatus.errorMessage = nextStatus.errorMessage ?? '';
+  applyLocalPvpDisplayNameToMatchStatus();
+  applyOpponentPvpDisplayNameToMatchStatus();
 
   const nextPhase = matchmakingStatus.phase;
   if (nextPhase === 'matched' && prevPhase !== 'matched') {
     resetPvpRealtimeState();
+    applyLocalPvpDisplayNameToMatchStatus();
+    applyOpponentPvpDisplayNameToMatchStatus();
+    void broadcastLocalPvpProfileSync('matched_enter');
   }
   if (nextPhase !== 'matched') {
     resetPvpReadyState();
   } else {
     refreshPvpReadyMessage();
   }
+  syncGameCenterSessionFromMatchStatus(matchmakingStatus);
+}
+
+function clearRootCountdownTimer() {
+  if (!rootCountdownTimer) return;
+  clearInterval(rootCountdownTimer);
+  rootCountdownTimer = null;
+}
+
+function ensureRootCountdownTimer() {
+  if (rootCountdownTimer) return;
+  rootCountdownTimer = setInterval(() => {
+    countdownNowMs.value = Date.now();
+  }, 90);
 }
 
 function clearPendingPvpStartTimer() {
@@ -1237,8 +1573,13 @@ function resolveSkillDefinitionById(skillId = '') {
       targetRule: 'opponent',
       effectType: 'damage',
       effectMode: 'single_hit',
+      statusEffectId: '',
       valuePerHit: 0,
       pvpAuthoritativeValue: 0,
+      effectDurationMs: 0,
+      successRate: 1,
+      failReason: '',
+      pvpSyncMode: '',
       startAtMs: 0,
       intervalMs: 0,
       resolveMode: 'resolve_at_ms',
@@ -1257,7 +1598,17 @@ function resolveSkillDefinitionById(skillId = '') {
         target: '',
         durationMs: 0,
         tickMs: 0,
-        hasStatusEffect: false
+        hasStatusEffect: false,
+        mode: 'snap',
+        offsetX: 0,
+        offsetY: 0,
+        effectStartAtMs: 0,
+        effectEndAtMs: 0,
+        targetVisualKey: '',
+        endVisualKey: '',
+        casterFeedbackText: '',
+        failReason: '',
+        successRate: 1
       },
       castVisualKey: '',
       hitVisualKey: '',
@@ -1291,8 +1642,13 @@ function resolveSkillDefinitionById(skillId = '') {
     targetRule: String(raw.targetRule ?? 'opponent').trim() || 'opponent',
     effectType: String(raw.effectType ?? 'damage').trim() || 'damage',
     effectMode: String(raw.effectMode ?? 'single_hit').trim() || 'single_hit',
+    statusEffectId: String(raw.statusEffectId ?? raw.statusEffects?.id ?? '').trim(),
     valuePerHit: Math.max(0, Number(raw.valuePerHit ?? 0)),
     pvpAuthoritativeValue: Math.max(0, Number(raw.pvpAuthoritativeValue ?? 0)),
+    effectDurationMs: Math.max(0, Math.round(Number(raw.effectDurationMs ?? raw.statusEffects?.durationMs ?? 0))),
+    successRate: Math.max(0, Math.min(1, Number(raw.successRate ?? raw.statusEffects?.successRate ?? 1))),
+    failReason: String(raw.failReason ?? raw.statusEffects?.failReason ?? '').trim(),
+    pvpSyncMode: String(raw.pvpSyncMode ?? '').trim(),
     startAtMs: Math.max(0, Math.round(Number(raw.startAtMs ?? 0))),
     intervalMs: Math.max(0, Math.round(Number(raw.intervalMs ?? 0))),
     resolveMode: String(raw.resolveMode ?? '').trim(),
@@ -1308,8 +1664,40 @@ function resolveSkillDefinitionById(skillId = '') {
     pvpPacketRule: String(raw.pvpPacketRule ?? '').trim(),
     hitPattern: raw.hitPattern && typeof raw.hitPattern === 'object' ? raw.hitPattern : {},
     statusEffects: raw.statusEffects && typeof raw.statusEffects === 'object'
-      ? raw.statusEffects
-      : { id: '', target: '', durationMs: 0, tickMs: 0, hasStatusEffect: false },
+      ? {
+        ...raw.statusEffects,
+        mode: String(raw.statusEffects.mode ?? 'snap').trim() || 'snap',
+        offsetX: Math.round(Number(raw.statusEffects.offsetX ?? 0)),
+        offsetY: Math.round(Number(raw.statusEffects.offsetY ?? 0)),
+        effectStartAtMs: Number.isFinite(Number(raw.statusEffects.effectStartAtMs))
+          ? Math.round(Number(raw.statusEffects.effectStartAtMs))
+          : 0,
+        effectEndAtMs: Number.isFinite(Number(raw.statusEffects.effectEndAtMs))
+          ? Math.round(Number(raw.statusEffects.effectEndAtMs))
+          : 0,
+        targetVisualKey: String(raw.statusEffects.targetVisualKey ?? '').trim(),
+        endVisualKey: String(raw.statusEffects.endVisualKey ?? '').trim(),
+        casterFeedbackText: String(raw.statusEffects.casterFeedbackText ?? '').trim(),
+        failReason: String(raw.statusEffects.failReason ?? '').trim(),
+        successRate: Math.max(0, Math.min(1, Number(raw.statusEffects.successRate ?? 1)))
+      }
+      : {
+        id: '',
+        target: '',
+        durationMs: 0,
+        tickMs: 0,
+        hasStatusEffect: false,
+        mode: 'snap',
+        offsetX: 0,
+        offsetY: 0,
+        effectStartAtMs: 0,
+        effectEndAtMs: 0,
+        targetVisualKey: '',
+        endVisualKey: '',
+        casterFeedbackText: '',
+        failReason: '',
+        successRate: 1
+      },
     castVisualKey: String(raw.castVisualKey ?? '').trim(),
     hitVisualKey: String(raw.hitVisualKey ?? '').trim(),
     impactVisualKey: String(raw.impactVisualKey ?? '').trim(),
@@ -1335,6 +1723,39 @@ function resolveSkillNameById(skillId = '') {
   const skill = resolveSkillDefinitionById(skillId);
   const name = String(skill?.name ?? '').trim();
   return name || '對手技能';
+}
+
+function resolveCastResultForLifecycle(cast = null) {
+  const result = cast?.result && typeof cast.result === 'object' ? cast.result : {};
+  const castResult = cast?.castResult && typeof cast.castResult === 'object' ? cast.castResult : {};
+  const outcome = String(castResult?.outcome ?? result?.outcome ?? '').trim().toLowerCase();
+  const success = typeof castResult?.success === 'boolean'
+    ? castResult.success
+    : (typeof result?.success === 'boolean'
+      ? result.success
+      : (outcome ? outcome !== 'failed' : true));
+  const failReason = String(castResult?.failReason ?? result?.failReason ?? '').trim();
+  return {
+    success,
+    outcome,
+    failReason
+  };
+}
+
+function resolveCastEffectDurationMs(cast = null) {
+  const timelineDuration = Number(cast?.effectTimeline?.durationMs);
+  if (Number.isFinite(timelineDuration) && timelineDuration > 0) {
+    return Math.max(0, Math.round(timelineDuration));
+  }
+  const statusDuration = Number(cast?.statusEffects?.durationMs);
+  if (Number.isFinite(statusDuration) && statusDuration > 0) {
+    return Math.max(0, Math.round(statusDuration));
+  }
+  const skillDuration = Number(cast?.skillDefinition?.effectDurationMs);
+  if (Number.isFinite(skillDuration) && skillDuration > 0) {
+    return Math.max(0, Math.round(skillDuration));
+  }
+  return 0;
 }
 
 function markPlayerSkillCooldownPending(skillId = '', pending = false) {
@@ -1449,9 +1870,25 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
     ? Math.round(Number(payload.resolveAtMs))
     : null;
   const resultPayload = payload?.result && typeof payload.result === 'object' ? payload.result : {};
+  const castResultPayload = payload?.castResult && typeof payload.castResult === 'object'
+    ? payload.castResult
+    : {};
+  const lifecyclePayload = payload?.lifecycle && typeof payload.lifecycle === 'object'
+    ? payload.lifecycle
+    : {};
+  const resultOutcome = String(resultPayload?.outcome ?? '').trim().toLowerCase();
+  const resultSuccess = typeof castResultPayload?.success === 'boolean'
+    ? castResultPayload.success
+    : (typeof resultPayload?.success === 'boolean'
+      ? resultPayload.success
+      : (resultOutcome ? resultOutcome !== 'failed' : null));
+  const resultFailReason = String(castResultPayload?.failReason ?? resultPayload?.failReason ?? '').trim();
   const resultDamage = Math.max(0, Math.round(Number(resultPayload?.damage ?? payload?.damage ?? 0)));
   const resultHealPayload = resultPayload?.heal && typeof resultPayload.heal === 'object'
     ? resultPayload.heal
+    : {};
+  const resultStatusEffectPayload = resultPayload?.statusEffect && typeof resultPayload.statusEffect === 'object'
+    ? resultPayload.statusEffect
     : {};
   const resultHeal = {
     rawHeal: Math.max(0, Math.round(Number(resultHealPayload?.rawHeal ?? 0))),
@@ -1517,7 +1954,23 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
       target: String(statusEffectsPayload?.target ?? '').trim(),
       durationMs: Math.max(0, Math.round(Number(statusEffectsPayload?.durationMs ?? 0))),
       tickMs: Math.max(0, Math.round(Number(statusEffectsPayload?.tickMs ?? 0))),
-      hasStatusEffect: Boolean(statusEffectsPayload?.hasStatusEffect)
+      hasStatusEffect: Boolean(statusEffectsPayload?.hasStatusEffect),
+      mode: String(statusEffectsPayload?.mode ?? '').trim(),
+      offsetX: Math.round(Number(statusEffectsPayload?.offsetX ?? 0)),
+      offsetY: Math.round(Number(statusEffectsPayload?.offsetY ?? 0)),
+      effectStartAtMs: Number.isFinite(Number(statusEffectsPayload?.effectStartAtMs))
+        ? Math.round(Number(statusEffectsPayload?.effectStartAtMs))
+        : 0,
+      effectEndAtMs: Number.isFinite(Number(statusEffectsPayload?.effectEndAtMs))
+        ? Math.round(Number(statusEffectsPayload?.effectEndAtMs))
+        : 0,
+      success: typeof statusEffectsPayload?.success === 'boolean'
+        ? statusEffectsPayload.success
+        : (typeof resultSuccess === 'boolean' ? resultSuccess : null),
+      casterFeedbackText: String(statusEffectsPayload?.casterFeedbackText ?? '').trim(),
+      targetVisualKey: String(statusEffectsPayload?.targetVisualKey ?? '').trim(),
+      endVisualKey: String(statusEffectsPayload?.endVisualKey ?? '').trim(),
+      failReason: String(statusEffectsPayload?.failReason ?? resultPayload?.failReason ?? '').trim()
     },
     effectTimeline: {
       effectStartAtMs: Number.isFinite(Number(effectTimelinePayload?.effectStartAtMs))
@@ -1531,7 +1984,46 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
     },
     hitEvents: normalizedHitEvents,
     skillName: resolveSkillNameById(skillId),
-    skillDefinition
+    skillDefinition,
+    resultOutcome,
+    resultSuccess,
+    resultFailReason,
+    castResult: {
+      success: typeof resultSuccess === 'boolean' ? resultSuccess : true,
+      failReason: resultFailReason,
+      outcome: String(castResultPayload?.outcome ?? resultOutcome ?? '').trim() || (typeof resultSuccess === 'boolean' && resultSuccess ? 'success' : 'failed')
+    },
+    lifecycle: {
+      castFeedback: {
+        success: String(lifecyclePayload?.castFeedback?.success ?? skillDefinition?.lifecycle?.castFeedback?.success ?? '').trim() || '技能施放成功',
+        failed: String(lifecyclePayload?.castFeedback?.failed ?? skillDefinition?.lifecycle?.castFeedback?.failed ?? '').trim() || '技能施放失敗'
+      },
+      castStartAnimation: String(lifecyclePayload?.castStartAnimation ?? skillDefinition?.lifecycle?.castStartAnimation ?? '').trim(),
+      effectStart: String(lifecyclePayload?.effectStart ?? skillDefinition?.lifecycle?.effectStart ?? '').trim(),
+      effectEnd: String(lifecyclePayload?.effectEnd ?? skillDefinition?.lifecycle?.effectEnd ?? '').trim(),
+      castEndAnimation: String(lifecyclePayload?.castEndAnimation ?? skillDefinition?.lifecycle?.castEndAnimation ?? '').trim(),
+      pvpSyncMode: String(lifecyclePayload?.pvpSyncMode ?? skillDefinition?.lifecycle?.pvpSyncMode ?? skillDefinition?.pvpSyncMode ?? '').trim()
+    },
+    resultStatusEffect: {
+      id: String(resultStatusEffectPayload?.id ?? '').trim(),
+      success: typeof resultStatusEffectPayload?.success === 'boolean'
+        ? resultStatusEffectPayload.success
+        : (typeof resultSuccess === 'boolean' ? resultSuccess : null),
+      offsetX: Math.round(Number(resultStatusEffectPayload?.offsetX ?? 0)),
+      offsetY: Math.round(Number(resultStatusEffectPayload?.offsetY ?? 0)),
+      durationMs: Math.max(0, Math.round(Number(resultStatusEffectPayload?.durationMs ?? 0))),
+      effectStartAtMs: Number.isFinite(Number(resultStatusEffectPayload?.effectStartAtMs))
+        ? Math.round(Number(resultStatusEffectPayload?.effectStartAtMs))
+        : 0,
+      effectEndAtMs: Number.isFinite(Number(resultStatusEffectPayload?.effectEndAtMs))
+        ? Math.round(Number(resultStatusEffectPayload?.effectEndAtMs))
+        : 0,
+      mode: String(resultStatusEffectPayload?.mode ?? '').trim(),
+      casterFeedbackText: String(resultStatusEffectPayload?.casterFeedbackText ?? '').trim(),
+      targetVisualKey: String(resultStatusEffectPayload?.targetVisualKey ?? '').trim(),
+      endVisualKey: String(resultStatusEffectPayload?.endVisualKey ?? '').trim(),
+      failReason: String(resultStatusEffectPayload?.failReason ?? '').trim()
+    }
   };
 }
 
@@ -1572,6 +2064,10 @@ function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
       role: cast.localRole
     });
     console.info(`[PvP Sync] skill_cast 套用權威回血 castId=${cast.castId} role=${cast.localRole} reason=${reason} heal=${actualHeal} hpAfter=${hpAfter}`);
+    return;
+  }
+  if (effectType === 'visual_disrupt') {
+    console.info(`[PvP Sync] skill_cast 套用權威視覺干擾 castId=${cast.castId} role=${cast.localRole} reason=${reason} success=${String(cast.resultSuccess)}`);
     return;
   }
   const damage = Math.max(0, Number(cast.resultDamage ?? 0));
@@ -1710,6 +2206,17 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   syncBattleTimeFromSkillCast(nextCast);
   console.info(`[PvP Sync] handleSkillCast啟動 castId=${nextCast.castId} role=${nextCast.localRole} skillId=${nextCast.skillId} pauseDurationMs=${nextCast.pauseDurationMs} battleRemainingMsAtCast=${nextCast.battleRemainingMsAtCast} reason=${reason}`);
   nextCast.pendingBattleEnd = false;
+  const castResultSummary = resolveCastResultForLifecycle(nextCast);
+  emitSkillLifecycleStage('cast_result', nextCast, {
+    source: 'authoritative_cast',
+    outcome: castResultSummary.outcome || 'unknown',
+    failReason: castResultSummary.failReason || ''
+  });
+  emitSkillLifecycleStage('cast_feedback', nextCast, {
+    source: 'caster_feedback',
+    outcome: castResultSummary.outcome || 'unknown'
+  });
+  showLifecycleCastFeedback(nextCast);
 
   if (nextCast.localRole === 'caster') {
     const cost = Math.max(0, Number(nextCast.skillDefinition?.cost ?? 0));
@@ -1723,7 +2230,21 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   }
 
   setPaused(true);
+  emitSkillLifecycleStage('cast_start_animation', nextCast, {
+    source: 'skill_cast_start'
+  });
   void playSkillAnimation(nextCast);
+  emitSkillLifecycleStage('apply_effect', nextCast, {
+    source: 'skill_effect_apply',
+    effectType: resolveSkillEffectType(nextCast.skillDefinition),
+    hasHitEvents: Array.isArray(nextCast.hitEvents) && nextCast.hitEvents.length > 0
+  });
+  const statusEffectApplied = Boolean(statusEffectEngine?.applySkillCastStatusEffect?.(nextCast));
+  const castEffectDurationMs = resolveCastEffectDurationMs(nextCast);
+  emitSkillLifecycleStage('effect_duration', nextCast, {
+    source: statusEffectApplied ? 'status_effect_apply' : 'effect_duration_default',
+    durationMs: castEffectDurationMs
+  });
 
   clearSkillCastSyncTimers();
   const nowMs = Date.now();
@@ -1756,7 +2277,23 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
       markPlayerSkillCooldownPending(nextCast.skillId, false);
       applyPlayerSkillCooldown(nextCast.skillDefinition);
     }
+    const hasActiveStatusEffect = Boolean(statusEffectEngine?.hasActiveEffectForCast?.(nextCast.castId));
+    if (!hasActiveStatusEffect) {
+      emitSkillLifecycleStage('effect_end', nextCast, {
+        source: 'cast_resume',
+        reason: 'effect_finished_or_none'
+      });
+    }
+    emitSkillLifecycleStage('cast_end_animation', nextCast, {
+      source: 'skill_cast_resume'
+    });
+    void clearSkillAnimation('skill_cast_resume', nextCast);
+
     const shouldEndBattleAfterCast = Boolean(nextCast.pendingBattleEnd);
+    emitSkillLifecycleStage('battle_end_check', nextCast, {
+      source: 'resume_check',
+      pendingBattleEnd: shouldEndBattleAfterCast
+    });
     if (shouldEndBattleAfterCast && isCurrentPlayerMatchHost()) {
       broadcastHostBattleEndNow('skill_cast_pending_end');
     }
@@ -1764,7 +2301,9 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
       gameState.value = 'playing';
     }
     setPaused(false);
-    void clearSkillAnimation('skill_cast_resume', nextCast);
+    emitSkillLifecycleStage('resume_battle', nextCast, {
+      source: 'skill_cast_resume'
+    });
     console.info(`[PvP Sync] skill_cast 結束 castId=${nextCast.castId}，恢復倒數`);
     activeSkillCast = null;
     tryStartQueuedSkillCast('next_cast');
@@ -1814,6 +2353,20 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
     ? requesterId
     : (requesterId === localPlayerId ? opponentPlayerId : localPlayerId);
   const requestCastId = String(payload?.requestCastId ?? '').trim();
+  emitSkillLifecycleStage('cast_request', {
+    castId: requestCastId,
+    skillId: requestedSkillId,
+    casterPlayerId: requesterId,
+    targetPlayerId,
+    localRole: requesterId === localPlayerId ? 'caster' : 'target',
+    castResult: {
+      success: true,
+      outcome: 'requested',
+      failReason: ''
+    }
+  }, {
+    source: 'remote_request'
+  });
   const authoritativeCast = buildHostAuthoritativeSkillCastPayload({
     skillId: requestedSkillId,
     casterPlayerId: requesterId,
@@ -1826,6 +2379,7 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
 function resetPvpReadyState() {
   clearPendingPvpStartTimer();
   resetSkillCastSyncState();
+  statusEffectEngine?.reset?.('reset_pvp_ready_state');
   rootFogOverlayVisible.value = false;
   rootFogOverlayPhase.value = 'pre';
   rootFogTimeline.durationMs = PVP_FOG_TRANSITION_MS;
@@ -1852,9 +2406,8 @@ function refreshPvpReadyMessage() {
     const startAt = Number(matchmakingStatus.startAtMs);
     if (Number.isFinite(startAt) && startAt > 0) {
       const remainMs = startAt - Date.now();
-      const remainSec = Math.max(1, Math.ceil(remainMs / 1000));
       matchmakingStatus.message = remainMs > 0
-        ? `雙方已準備，${remainSec} 秒後開戰...`
+        ? '雙方已準備，開戰倒數中...'
         : '雙方已準備，正在進入對戰...';
       return;
     }
@@ -1874,6 +2427,23 @@ function refreshPvpReadyMessage() {
     return;
   }
   matchmakingStatus.message = '配對成功，請準備對戰。';
+}
+
+async function logRootCountdownOverlayMetrics() {
+  await nextTick();
+  const overlayEl = rootCountdownOverlayRef.value;
+  const mountedAtRoot = Boolean(overlayEl && overlayEl.parentElement === document.body);
+  if (mountedAtRoot) {
+    console.info('[PvP Sync] CountdownOverlay mounted at root');
+  } else {
+    const parentTag = overlayEl?.parentElement?.tagName ?? 'unknown';
+    console.warn(`[PvP Sync] CountdownOverlay not mounted at root parent=${parentTag}`);
+  }
+  console.info(`[PvP Sync] CountdownOverlay viewport size = ${window.innerWidth}/${window.innerHeight}`);
+  if (overlayEl) {
+    const rect = overlayEl.getBoundingClientRect();
+    console.info(`[PvP Sync] CountdownOverlay rect = ${Math.round(rect.width)}x${Math.round(rect.height)}`);
+  }
 }
 
 async function logRootFogOverlayMetrics() {
@@ -1966,34 +2536,49 @@ function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
   }, delay);
 }
 
-function schedulePvpBattleStart(startAtMs = Date.now(), options = {}) {
+function startPreBattleCountdown({
+  startAt = Date.now(),
+  fogDurationMs = PVP_FOG_TRANSITION_MS,
+  seed = '',
+  source = 'unknown'
+} = {}) {
   if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
   clearPendingPvpStartTimer();
+  const safeStartAt = Number.isFinite(Number(startAt)) ? Math.round(Number(startAt)) : 0;
+  if (safeStartAt <= 0) {
+    console.warn('[PvP Sync] startPreBattleCountdown 缺少有效 startAt，忽略本次倒數啟動');
+    return;
+  }
+  if (seed) lastPvpBattleSeed = seed;
+
   matchmakingStatus.startPending = true;
   matchmakingStatus.fogPending = false;
   matchmakingStatus.fogEndAtMs = 0;
-  const countdownMsRaw = Number(options?.countdownMs ?? PVP_READY_COUNTDOWN_MS);
-  const countdownMs = Math.max(1200, Math.min(7000, Math.round(countdownMsRaw)));
-  const fogDurationRaw = Number(options?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
-  const fogDurationMs = Math.max(1500, Math.min(2200, Math.round(fogDurationRaw)));
-  const safeStartAt = Number.isFinite(Number(startAtMs)) ? Number(startAtMs) : 0;
+  const normalizedFogDurationMs = Math.max(1500, Math.min(2200, Math.round(Number(fogDurationMs) || PVP_FOG_TRANSITION_MS)));
   const nowMs = Date.now();
-  const absoluteDelay = safeStartAt > 0 ? (safeStartAt - nowMs) : Number.NaN;
-  const canUseAbsoluteDelay = Number.isFinite(absoluteDelay) && absoluteDelay >= 900 && absoluteDelay <= 7000;
-  const delay = canUseAbsoluteDelay
-    ? Math.round(absoluteDelay)
-    : countdownMs;
-  const resolvedStartAt = nowMs + Math.max(0, delay);
-  matchmakingStatus.startAtMs = resolvedStartAt;
+  const remainingMs = safeStartAt - nowMs;
+  const delay = Math.max(0, Math.round(remainingMs));
+  const displayNumber = Math.min(9, Math.max(1, Math.ceil(Math.max(0, remainingMs) / 1000)));
+
+  matchmakingStatus.startAtMs = safeStartAt;
+  countdownNowMs.value = nowMs;
   refreshPvpReadyMessage();
-  console.info(`[PvP Sync] 排程開戰 source=${String(options?.source ?? 'unknown')} absoluteDelay=${Number.isFinite(absoluteDelay) ? Math.round(absoluteDelay) : -1} resolvedDelay=${delay} fogDuration=${fogDurationMs}`);
+  console.info(`[PvP Sync] 排程開戰 source=${String(source)} hostStartAt=${safeStartAt} delay=${delay} fogDuration=${normalizedFogDurationMs}`);
+  console.info(`[PvP Sync] countdown hostStartAt = ${safeStartAt}`);
+  console.info(`[PvP Sync] countdown now = ${nowMs}`);
+  console.info(`[PvP Sync] countdown remainingMs = ${Math.round(remainingMs)}`);
+  console.info(`[PvP Sync] countdown displayNumber = ${displayNumber}`);
+
   if (delay === 0) {
-    beginPvpFogTransition(resolvedStartAt, { fogDurationMs });
+    console.info('[PvP Sync] countdown complete, start fog_transition');
+    beginPvpFogTransition(safeStartAt, { fogDurationMs: normalizedFogDurationMs });
     return;
   }
+
   pendingPvpStartTimer = setTimeout(() => {
     pendingPvpStartTimer = null;
-    beginPvpFogTransition(resolvedStartAt, { fogDurationMs });
+    console.info('[PvP Sync] countdown complete, start fog_transition');
+    beginPvpFogTransition(safeStartAt, { fogDurationMs: normalizedFogDurationMs });
   }, delay);
 }
 
@@ -2005,10 +2590,10 @@ function checkBothReady(reason = '') {
 
   const isHost = isCurrentPlayerMatchHost();
   console.info(`[PvP Sync] isHost狀態: ${isHost ? 'host' : 'guest'}`);
-  matchmakingStatus.startPending = true;
-  matchmakingStatus.startAtMs = Date.now() + PVP_READY_COUNTDOWN_MS;
-  refreshPvpReadyMessage();
-  if (!isHost) return;
+  if (!isHost) {
+    refreshPvpReadyMessage();
+    return;
+  }
 
   const seed = generatePvpBattleSeed();
   lastPvpBattleSeed = seed;
@@ -2018,13 +2603,13 @@ function checkBothReady(reason = '') {
     mode: 'pvp',
     seed,
     startAt,
-    countdownMs: PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS,
     fogDurationMs: PVP_FOG_TRANSITION_MS
   });
-  schedulePvpBattleStart(startAt, {
+  startPreBattleCountdown({
     source: 'host_local',
-    countdownMs: PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS,
-    fogDurationMs: PVP_FOG_TRANSITION_MS
+    startAt,
+    fogDurationMs: PVP_FOG_TRANSITION_MS,
+    seed
   });
 }
 
@@ -2035,6 +2620,9 @@ function markLocalPlayerReady() {
   matchmakingStatus.localReady = nextReady;
   refreshPvpReadyMessage();
   console.info(`[PvP Sync] 本機${nextReady ? '送出ready' : '取消ready'}`);
+  if (nextReady) {
+    void broadcastLocalPvpProfileSync('local_ready');
+  }
   void sendPvpRealtimeEvent('ready', { ready: nextReady });
   if (!nextReady) return;
   checkBothReady('local_ready');
@@ -2048,6 +2636,7 @@ function nextLocalPvpEventSeq() {
 function resetPvpRealtimeState() {
   localPvpEventSeq = 0;
   remotePvpEventSeqByPlayer.clear();
+  remotePvpDisplayNameByPlayer.clear();
   resetPvpReadyState();
 }
 
@@ -2229,6 +2818,21 @@ async function handlePlayerSkillUse(skill = null) {
   const targetRule = resolveSkillTargetRule(resolvedSkill);
   const targetPlayerIdForCast = targetRule === 'self' ? localPlayerId : opponentPlayerId;
   const requestCastId = `cast-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  emitSkillLifecycleStage('cast_request', {
+    castId: requestCastId,
+    skillId: resolvedSkill.id,
+    casterPlayerId: localPlayerId,
+    targetPlayerId: targetPlayerIdForCast,
+    localRole: 'caster',
+    castResult: {
+      success: true,
+      outcome: 'requested',
+      failReason: ''
+    }
+  }, {
+    source: isCurrentPlayerMatchHost() ? 'local_host' : 'local_guest',
+    battleRemainingMsAtRequest: Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000))
+  });
 
   if (isCurrentPlayerMatchHost()) {
     const castPayload = buildHostAuthoritativeSkillCastPayload({
@@ -2300,22 +2904,42 @@ function handlePvpRealtimeEvent(packet = {}) {
     return;
   }
 
+  if (type === 'profile_sync') {
+    const sourcePlayerId = String(normalizedPacket?._sourcePlayerId ?? normalizedPacket?.payload?.playerId ?? '').trim();
+    const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+    if (!sourcePlayerId || sourcePlayerId === localPlayerId) return;
+    const customName = sanitizePvpNickname(normalizedPacket?.payload?.displayName, '');
+    if (!customName) return;
+    remotePvpDisplayNameByPlayer.set(sourcePlayerId, customName);
+    if (matchmakingStatus.opponentProfile && typeof matchmakingStatus.opponentProfile === 'object') {
+      const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+      if (!opponentId) {
+        matchmakingStatus.opponentProfile.id = sourcePlayerId;
+      }
+      if (!opponentId || opponentId === sourcePlayerId) {
+        applyOpponentPvpDisplayNameToMatchStatus();
+      }
+    }
+    return;
+  }
+
   if (type === 'start_battle' || type === 'battle_start') {
     if (matchmakingStatus.phase !== 'matched') return;
     const mode = String(normalizedPacket?.payload?.mode ?? '').trim().toLowerCase();
     if (mode && mode !== 'pvp') return;
     const startAt = Number(normalizedPacket?.payload?.startAt ?? Date.now());
-    const countdownMs = Number(normalizedPacket?.payload?.countdownMs ?? (PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS));
     const fogDurationMs = Number(normalizedPacket?.payload?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
     const seed = String(normalizedPacket?.payload?.seed ?? '').trim();
-    if (seed) {
-      lastPvpBattleSeed = seed;
+    if (!Number.isFinite(startAt) || startAt <= 0) {
+      console.warn('[PvP Sync] 收到start_battle但缺少有效startAt，忽略本次啟動');
+      return;
     }
     console.info(`[PvP Sync] 收到start_battle，進入PvP seed=${seed || 'none'}`);
-    schedulePvpBattleStart(startAt, {
+    startPreBattleCountdown({
       source: 'remote_packet',
-      countdownMs,
-      fogDurationMs
+      startAt,
+      fogDurationMs,
+      seed
     });
     return;
   }
@@ -2380,6 +3004,7 @@ function handlePvpRealtimeEvent(packet = {}) {
     const castToClear = activeSkillCast;
     activeSkillCast = null;
     awaitingLocalSkillCastAck = false;
+    statusEffectEngine?.reset?.('battle_end_packet');
     void clearSkillAnimation('battle_end', castToClear);
     setPaused(false);
     if (gameState.value !== 'gameResult') {
@@ -2392,10 +3017,56 @@ function handlePvpRealtimeEvent(packet = {}) {
     if (!isCurrentBattlePvP.value) return;
     if (currentScreen.value !== 'battle') return;
     if (gameState.value === 'gameResult') return;
+    statusEffectEngine?.reset?.('forfeit_packet');
     resetSkillCastSyncState();
     forceOpponentDefeat();
   }
 }
+
+watch(
+  isRootCountdownOverlayVisible,
+  (visible) => {
+    countdownNowMs.value = Date.now();
+    if (visible) {
+      ensureRootCountdownTimer();
+      lastLoggedCountdownTick = null;
+      console.info('[PvP Sync] countdown animation start');
+      void logRootCountdownOverlayMetrics();
+      const startAt = Number(matchmakingStatus.startAtMs);
+      const nowMs = Date.now();
+      const remainingMs = startAt - nowMs;
+      const displayNumber = Math.min(9, Math.max(1, Math.ceil(Math.max(0, remainingMs) / 1000)));
+      console.info(`[PvP Sync] countdown hostStartAt = ${Math.round(startAt)}`);
+      console.info(`[PvP Sync] countdown now = ${nowMs}`);
+      console.info(`[PvP Sync] countdown remainingMs = ${Math.round(remainingMs)}`);
+      console.info(`[PvP Sync] countdown displayNumber = ${displayNumber}`);
+      console.info(`[PvP Sync] countdown tick = ${displayNumber}`);
+      lastLoggedCountdownTick = displayNumber;
+      return;
+    }
+    clearRootCountdownTimer();
+    lastLoggedCountdownTick = null;
+  },
+  { flush: 'post' }
+);
+
+watch(
+  rootCountdownNumber,
+  (tick) => {
+    if (!isRootCountdownOverlayVisible.value) return;
+    if (tick === lastLoggedCountdownTick) return;
+    const startAt = Number(matchmakingStatus.startAtMs);
+    const nowMs = Date.now();
+    const remainingMs = startAt - nowMs;
+    const displayNumber = Math.min(9, Math.max(1, Math.ceil(Math.max(0, remainingMs) / 1000)));
+    console.info(`[PvP Sync] countdown hostStartAt = ${Math.round(startAt)}`);
+    console.info(`[PvP Sync] countdown now = ${nowMs}`);
+    console.info(`[PvP Sync] countdown remainingMs = ${Math.round(remainingMs)}`);
+    console.info(`[PvP Sync] countdown displayNumber = ${displayNumber}`);
+    console.info(`[PvP Sync] countdown tick = ${tick}`);
+    lastLoggedCountdownTick = tick;
+  }
+);
 
 watch(
   isRootFogOverlayVisible,
@@ -2410,6 +3081,16 @@ watch(
     }
   },
   { flush: 'post' }
+);
+
+watch(
+  timeLeft,
+  (value) => {
+    if (!isCurrentBattlePvP.value) return;
+    if (currentScreen.value !== 'battle') return;
+    const remainingMs = Math.max(0, Math.round(Number(value ?? 0) * 1000));
+    statusEffectEngine?.syncBattleRemainingMs?.(remainingMs);
+  }
 );
 
 function resolveBgmSceneId(screen) {
@@ -2430,6 +3111,7 @@ function forfeitActivePvpBattleAndExit(destination = 'home') {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   shouldAutoResumeBattleAfterForeground = false;
+  statusEffectEngine?.reset?.('forfeit_exit');
   resetSkillCastSyncState();
   void sendPvpRealtimeEvent('forfeit', { reason: 'leave_battle_screen' });
   setPaused(false);
@@ -2489,7 +3171,7 @@ function handleAppForeground() {
 }
 
 onMounted(async () => {
-  await loadAccountState();
+  await loadGameCenterSessionCache();
   await loadStudyStateForActiveAccount();
   await loadRuntimeSettings();
   hasHydratedRuntimeSettings = true;
@@ -2498,6 +3180,9 @@ onMounted(async () => {
   setBgmEnabled(bgmEnabled.value);
   if (bgmEnabled.value) sfx.ensureBgmRunning();
 
+  if (matchService.providerName === 'gamecenter') {
+    console.info('GameCenter auto-auth on app start');
+  }
   matchService.init()
     .then((capabilities) => {
       Object.assign(matchCapabilities, capabilities ?? {});
@@ -2582,6 +3267,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearPendingPvpStartTimer();
+  clearRootCountdownTimer();
+  statusEffectEngine?.reset?.('app_unmount');
   resetSkillCastSyncState();
   if (typeof unsubscribeMatchStatus === 'function') unsubscribeMatchStatus();
   if (typeof unsubscribeRealtimeEvents === 'function') unsubscribeRealtimeEvents();
@@ -2637,16 +3324,12 @@ watch(
 );
 
 watch(
-  accountState,
-  () => {
-    void saveAccountState();
+  () => getActiveProfileKey(),
+  (nextKey, prevKey) => {
+    if (nextKey === prevKey) return;
     void loadStudyStateForActiveAccount();
-    void matchService.signIn({
-      displayName: getPreferredDisplayName(),
-      silent: true
-    });
   },
-  { deep: true }
+  { flush: 'post' }
 );
 
 watch(unlockedStageIds, (ids) => {
@@ -2711,6 +3394,7 @@ watch(
 );
 
 function startBattle() {
+  statusEffectEngine?.reset?.('start_pve_battle');
   resetSkillCastSyncState();
   battleEndBroadcasted = false;
   battleSessionMode.value = 'pve';
@@ -2724,6 +3408,7 @@ function startBattle() {
 
 function startPvpBattle() {
   clearPendingPvpStartTimer();
+  statusEffectEngine?.reset?.('start_pvp_battle');
   resetSkillCastSyncState();
   battleEndBroadcasted = false;
   matchmakingStatus.startPending = false;
@@ -2752,19 +3437,44 @@ function startPvpBattle() {
 }
 
 function openMatchmaking() {
+  console.info('PvP page opened, checking existing GameCenter session only');
   currentScreen.value = 'matchmaking';
-}
-
-async function syncMatchmakingAccount() {
-  await matchService.signIn({
-    displayName: getPreferredDisplayName()
+  void ensureGameCenterAuthenticated({ source: 'pvp_page_open', interactive: false }).then(() => {
+    if (!isGameCenterProvider.value) return;
+    if (gameCenterSession.isAuthenticated) return;
+    if (currentScreen.value !== 'matchmaking') return;
+    if (matchmakingStatus.phase === 'searching' || matchmakingStatus.phase === 'matched') return;
+    applyMatchStatus({
+      ...matchmakingStatus,
+      phase: 'auth_required',
+      message: '請先到主畫面設定頁面連接 Game Center。',
+      errorMessage: ''
+    });
   });
 }
 
+function goSettingsFromMatchmaking() {
+  currentScreen.value = 'settings';
+}
+
 async function startPvPMatchmaking() {
+  console.info('PvP start matchmaking clicked');
+  if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
+    await ensureGameCenterAuthenticated({ source: 'pvp_start_guard', interactive: false });
+  }
+  if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
+    console.info('PvP blocked: Game Center not authenticated');
+    applyMatchStatus({
+      ...matchmakingStatus,
+      phase: 'auth_required',
+      message: '請先到主畫面設定頁面連接 Game Center。',
+      errorMessage: ''
+    });
+    return;
+  }
   resetPvpRealtimeState();
   await matchService.startMatchmaking({
-    displayName: getPreferredDisplayName(),
+    displayName: resolveLocalPvpDisplayName(),
     characterId: playerConfig.characterId,
     equippedSkillIds: buildFilledSkillIds(playerConfig.equippedSkillIds)
   });
@@ -2798,6 +3508,7 @@ function goStageSelectFromResult() {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   setPaused(false);
+  statusEffectEngine?.reset?.('go_stage_select_from_result');
   stopGame();
   currentScreen.value = 'stageSelect';
 }
@@ -2809,6 +3520,7 @@ function goMatchmakingFromResult() {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   setPaused(false);
+  statusEffectEngine?.reset?.('go_matchmaking_from_result');
   stopGame();
   currentScreen.value = 'matchmaking';
 }
@@ -2858,6 +3570,7 @@ function returnToHome() {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   setPaused(false);
+  statusEffectEngine?.reset?.('return_home');
   stopGame();
   currentScreen.value = 'home';
 }
@@ -2924,48 +3637,6 @@ function toggleSkillEquip(skillId) {
 
   if (playerConfig.equippedSkillIds.length >= MAX_SKILL_SLOTS) return;
   playerConfig.equippedSkillIds = [...playerConfig.equippedSkillIds, skillId];
-}
-
-function loginAccount() {
-  accountDialogMode.value = 'login';
-  accountInputName.value = accountState.name || 'SAMUREYE';
-  isAccountDialogOpen.value = true;
-}
-
-function logoutAccount() {
-  accountState.name = '';
-}
-
-function deleteAccount() {
-  accountDialogMode.value = 'delete';
-  isAccountDialogOpen.value = true;
-}
-
-function closeAccountDialog() {
-  isAccountDialogOpen.value = false;
-  accountInputName.value = '';
-}
-
-async function confirmAccountDialog() {
-  if (accountDialogMode.value === 'login') {
-    const name = (accountInputName.value || '').trim();
-    if (!name) return;
-    accountState.name = name;
-    closeAccountDialog();
-    return;
-  }
-
-  if (!hasActiveAccount.value) {
-    closeAccountDialog();
-    return;
-  }
-
-  const allProfiles = await loadAllStudyProfiles();
-  const profileKey = getActiveProfileKey();
-  delete allProfiles.profiles[profileKey];
-  await saveAllStudyProfiles(allProfiles);
-  accountState.name = '';
-  closeAccountDialog();
 }
 
 function addStudyKnowledgePoints(points) {

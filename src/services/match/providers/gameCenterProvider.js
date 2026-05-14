@@ -6,19 +6,23 @@ function toDisplayName(value, fallback = 'Game Center 玩家') {
 }
 
 function resolveLocalProfile(player = {}) {
+  const displayName = toDisplayName(player.displayName);
   return {
     id: player.id ?? '',
     gameCenterId: player.gameCenterId ?? '',
-    displayName: toDisplayName(player.displayName),
+    displayName,
+    gameCenterDisplayName: displayName,
     avatarEmoji: '🎮'
   };
 }
 
 function resolveOpponentProfile(raw = {}) {
+  const displayName = toDisplayName(raw.displayName, '對手連線中');
   return {
     id: raw.id ?? 'pending-opponent',
     gameCenterId: raw.gameCenterId ?? '',
-    displayName: toDisplayName(raw.displayName, '對手連線中'),
+    displayName,
+    gameCenterDisplayName: displayName,
     avatarEmoji: raw.avatarEmoji ?? '🥷'
   };
 }
@@ -132,12 +136,13 @@ export class GameCenterProvider {
     this.state = {
       provider: 'gamecenter',
       phase: 'auth_required',
-      message: '請先同步 Game Center 帳號。',
+      message: '請先到設定頁連接 Game Center。',
       queueSeconds: 0,
       localProfile: {
         id: '',
         gameCenterId: '',
         displayName: 'Game Center 玩家',
+        gameCenterDisplayName: 'Game Center 玩家',
         avatarEmoji: '🎮'
       },
       opponentProfile: null,
@@ -151,7 +156,7 @@ export class GameCenterProvider {
       platform: 'ios',
       requiresNativeBridge: true,
       supportsGameCenter: true,
-      canUseCustomDisplayName: false,
+      canUseCustomDisplayName: true,
       supportsRealtime: true
     };
   }
@@ -329,13 +334,14 @@ export class GameCenterProvider {
         return true;
       }
       this.state.phase = 'auth_required';
-      this.state.message = '請先同步 Game Center 帳號。';
+      this.state.message = '請先到設定頁連接 Game Center。';
       this.state.errorMessage = '';
       this.state.localProfile = {
         ...this.state.localProfile,
         id: '',
         gameCenterId: '',
-        displayName: 'Game Center 玩家'
+        displayName: 'Game Center 玩家',
+        gameCenterDisplayName: 'Game Center 玩家'
       };
       return false;
     } catch (error) {

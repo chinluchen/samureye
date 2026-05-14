@@ -112,48 +112,55 @@
       "skillName": "奧術．稜鏡幻覺",
       "animationKey": "prism-break",
       "implementationStatus": "實裝",
-      "type": "single_hit_disrupt",
-      "durationMs": 3700,
+      "type": "visual_disrupt_snap",
+      "durationMs": 2200,
       "requiresSkillAnimationLayer": true,
       "castStart": {
         "visualKey": "prism_cast_cutin",
-        "casterDescription": "施放者角色施放稜鏡光束或碎裂Cut-in",
-        "targetDescription": "目標端顯示稜鏡碎裂/視野偏移提示"
+        "casterDescription": "施放者端只顯示結果提示，不需要完整稜鏡偏移演出",
+        "targetDescription": "目標端在成功時套用稜鏡視標瞬間偏移"
       },
       "onHit": {
-        "visualKey": "prism_break_burst",
-        "impactVisualKey": "screen_shake_flash",
-        "damageTextMode": "single",
-        "textColor": "red",
+        "visualKey": "prism_displacement_snap",
+        "impactVisualKey": "prism_result_text",
+        "damageTextMode": "none",
+        "textColor": "cyan",
         "useHitEvents": false
       },
       "audio": {
         "key": "prism_break_hit"
       },
       "haptic": {
-        "mode": "medium"
+        "mode": "light"
       },
       "durationEffect": {
-        "visualKey": "prism_distortion"
+        "visualKey": "prism_displacement_hold"
       },
       "statusEffect": {
-        "id": "prism_confuse",
-        "target": "target",
-        "durationMs": 1200,
+        "id": "prism_displacement",
+        "target": "opponent",
+        "durationMs": 3000,
+        "mode": "snap",
+        "targetVisualKey": "prism_displacement_snap",
+        "endVisualKey": "prism_snap_back",
+        "casterFeedbackText": {
+          "success": "技能施放成功",
+          "failed": "技能施放失敗"
+        },
         "hasStatusEffect": true
       },
       "castEnd": {
-        "visualKey": "prism_fade_out",
+        "visualKey": "prism_snap_back",
         "clearTiming": "effect_completed_then_resume"
       },
-      "roleMappingRule": "caster看施放光束；target看稜鏡碎裂與短暫視覺偏移。",
+      "roleMappingRule": "caster只顯示技能結果文字；target在命中成功時snap偏移，結束時snap回正。",
       "sharedEntrypoints": {
         "pve": "SkillVisualEngine.playSingleHit",
-        "pvp": "handleSkillCast→SkillVisualEngine.play(animationKey,payload)"
+        "pvp": "handleSkillCast→StatusEffectEngine.applySkillCastStatusEffect(cast)"
       },
       "fallbackAllowed": true,
-      "codexCheck": "若正式素材未完成可用prism_burst fallback，但仍要顯示命中特效與跳字。",
-      "notes": "可作為單段傷害＋短暫干擾技能；實際狀態效果依技能表決定。",
+      "codexCheck": "禁止drift/sine/smooth_realign；必須是snap偏移與snap回正。",
+      "notes": "施放者不看偏移動畫；目標端只依host payload的offsetX/offsetY執行。",
       "jsonPathHint": "animations.prism-break"
     },
     {

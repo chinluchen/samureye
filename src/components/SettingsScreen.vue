@@ -3,7 +3,7 @@
     <header class="settings-header">
       <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
       <h2 class="settings-title">設定</h2>
-      <div class="settings-account">{{ accountLabel }}</div>
+      <div class="settings-account">{{ gameCenterHeaderLabel }}</div>
     </header>
 
     <article class="settings-card pixel-border">
@@ -60,11 +60,33 @@
     </article>
 
     <article class="settings-card pixel-border">
-      <h3 class="settings-section-title">帳號</h3>
-      <button type="button" class="battle-menu-button" @click="$emit('login-account')">登入帳號</button>
-      <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('logout-account')">登出</button>
-      <button type="button" class="battle-menu-button settings-danger-button" @click="$emit('delete-account')">刪除帳號</button>
+      <h3 class="settings-section-title">Game Center</h3>
+      <div class="settings-gamecenter-row">
+        <span class="settings-gamecenter-label">連接狀態</span>
+        <span class="settings-gamecenter-status" :class="`state-${normalizedGameCenterStatus}`">{{ gameCenterStatusLabel }}</span>
+      </div>
+      <div class="settings-gamecenter-row">
+        <span class="settings-gamecenter-label">玩家名稱</span>
+        <span class="settings-gamecenter-value">{{ gameCenterDisplayName }}</span>
+      </div>
+      <div class="settings-gamecenter-row settings-gamecenter-row-input">
+        <label class="settings-gamecenter-label" for="settings-pvp-nickname">遊戲暱稱</label>
+        <input
+          id="settings-pvp-nickname"
+          class="settings-gamecenter-input"
+          type="text"
+          maxlength="16"
+          :value="pvpNickname"
+          placeholder="輸入對戰暱稱"
+          @input="$emit('pvp-nickname-change', $event.target.value)"
+        >
+      </div>
+      <p class="settings-gamecenter-note">對戰顯示使用此暱稱，真實身分仍為 Game Center playerId。</p>
+      <button type="button" class="battle-menu-button" @click="$emit('gamecenter-connect')">連接 Game Center</button>
+      <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('gamecenter-refresh')">重新檢查 Game Center</button>
+      <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('gamecenter-clear-local')">清除本機綁定資訊</button>
     </article>
+
   </section>
 </template>
 
@@ -77,7 +99,17 @@ const props = defineProps({
   sfxEnabled: { type: Boolean, required: true },
   bgmEnabled: { type: Boolean, required: true },
   vibrationEnabled: { type: Boolean, required: true },
-  accountName: { type: String, default: '' }
+  gameCenterStatus: { type: String, default: 'unknown' },
+  pvpNickname: { type: String, default: '' },
+  gameCenterSession: {
+    type: Object,
+    default: () => ({
+      isAuthenticated: false,
+      displayName: '',
+      alias: '',
+      gameCenterId: ''
+    })
+  }
 });
 
 const emit = defineEmits([
@@ -87,9 +119,10 @@ const emit = defineEmits([
   'sfx-toggle',
   'bgm-toggle',
   'vibration-toggle',
-  'login-account',
-  'logout-account',
-  'delete-account'
+  'gamecenter-connect',
+  'gamecenter-refresh',
+  'gamecenter-clear-local',
+  'pvp-nickname-change'
 ]);
 
 function normalizeRangeEventValue(event) {
@@ -106,9 +139,34 @@ function emitSfxVolumeChange(event) {
   emit('sfx-volume-change', normalizeRangeEventValue(event));
 }
 
-const accountLabel = computed(() => {
-  if (!props.accountName) return '未登入';
-  if (props.accountName.trim().toLowerCase() === 'player') return '已登入：Player（測試）';
-  return `已登入：${props.accountName}`;
+const normalizedGameCenterStatus = computed(() => {
+  const text = String(props.gameCenterStatus || '').trim().toLowerCase();
+  if (['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
+  return 'unknown';
+});
+
+const gameCenterHeaderLabel = computed(() => {
+  const name = String(props.gameCenterSession?.displayName || props.gameCenterSession?.alias || '').trim();
+  if (normalizedGameCenterStatus.value === 'authenticated' && name) {
+    return `GC：${name}`;
+  }
+  if (normalizedGameCenterStatus.value === 'authenticated') return 'GC：已連接';
+  if (normalizedGameCenterStatus.value === 'authenticating') return 'GC：檢查中';
+  if (normalizedGameCenterStatus.value === 'error') return 'GC：異常';
+  return 'GC：未連接';
+});
+
+const gameCenterStatusLabel = computed(() => {
+  if (normalizedGameCenterStatus.value === 'authenticated') return '已連接';
+  if (normalizedGameCenterStatus.value === 'authenticating') return '檢查中';
+  if (normalizedGameCenterStatus.value === 'error') return '連線異常';
+  if (normalizedGameCenterStatus.value === 'unauthenticated') return '未連接';
+  return '未檢查';
+});
+
+const gameCenterDisplayName = computed(() => {
+  const name = String(props.gameCenterSession?.displayName || '').trim()
+    || String(props.gameCenterSession?.alias || '').trim();
+  return name || '尚未取得';
 });
 </script>

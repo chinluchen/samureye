@@ -13,13 +13,9 @@
           <p class="matchmaking-name">{{ localName }}</p>
           <p class="matchmaking-sub">你的對戰名</p>
         </div>
-        <button
-          type="button"
-          class="home-menu-button home-menu-button-active matchmaking-cta-secondary"
-          @click="$emit('sign-in')"
-        >
-          同步帳號
-        </button>
+        <div class="matchmaking-gc-state" :class="`state-${normalizedGameCenterStatus}`">
+          {{ gameCenterStateLabel }}
+        </div>
       </div>
 
       <div v-if="!fogVisible" class="matchmaking-status-box">
@@ -27,15 +23,6 @@
         <p class="matchmaking-status-text">{{ status.message }}</p>
         <p v-if="status.phase === 'searching'" class="matchmaking-status-sub">已搜尋 {{ status.queueSeconds }} 秒</p>
         <p v-if="status.errorMessage" class="matchmaking-status-error">{{ status.errorMessage }}</p>
-      </div>
-
-      <div v-if="countdownVisible" class="matchmaking-countdown-overlay pixel-border" aria-live="polite">
-        <span class="matchmaking-countdown-fog matchmaking-countdown-fog-a" aria-hidden="true"></span>
-        <span class="matchmaking-countdown-fog matchmaking-countdown-fog-b" aria-hidden="true"></span>
-        <div class="matchmaking-countdown-content">
-          <p class="matchmaking-countdown-title">即將開戰</p>
-          <p class="matchmaking-countdown-number">{{ countdownNumber }}</p>
-        </div>
       </div>
 
       <div v-if="status.opponentProfile" class="matchmaking-opponent-box">
@@ -46,9 +33,21 @@
         </div>
       </div>
 
+      <div v-if="showGameCenterGate && !fogVisible" class="matchmaking-gc-gate">
+        <p class="matchmaking-gc-gate-title">尚未連接 Game Center</p>
+        <p class="matchmaking-gc-gate-text">請先到主畫面設定頁面完成連接，再回來開始配對。</p>
+        <button
+          type="button"
+          class="home-menu-button home-menu-button-active matchmaking-cta-secondary"
+          @click="$emit('open-settings')"
+        >
+          前往設定頁
+        </button>
+      </div>
+
       <div v-if="!fogVisible" class="matchmaking-actions">
         <button
-          v-if="status.phase !== 'searching' && status.phase !== 'matched'"
+          v-if="!showGameCenterGate && status.phase !== 'searching' && status.phase !== 'matched'"
           type="button"
           class="home-start-button matchmaking-cta-primary"
           @click="$emit('start-match')"
@@ -56,7 +55,7 @@
           開始配對
         </button>
         <button
-          v-else
+          v-else-if="!showGameCenterGate"
           type="button"
           class="home-start-button matchmaking-cta-cancel"
           @click="$emit('cancel-match')"
@@ -79,7 +78,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
   status: {
@@ -89,6 +88,16 @@ const props = defineProps({
   capabilities: {
     type: Object,
     required: true
+  },
+  gameCenterStatus: {
+    type: String,
+    default: 'unknown'
+  },
+  gameCenterSession: {
+    type: Object,
+    default: () => ({
+      isAuthenticated: false
+    })
   }
 });
 
@@ -96,33 +105,25 @@ const providerLabel = computed(() => {
   if (props.capabilities.provider === 'gamecenter') return 'Game Center';
   return 'Mock';
 });
+const normalizedGameCenterStatus = computed(() => {
+  const text = String(props.gameCenterStatus || '').trim().toLowerCase();
+  if (['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
+  return 'unknown';
+});
+const gameCenterStateLabel = computed(() => {
+  if (normalizedGameCenterStatus.value === 'authenticated') return '已連接';
+  if (normalizedGameCenterStatus.value === 'authenticating') return '檢查中';
+  if (normalizedGameCenterStatus.value === 'error') return '連線異常';
+  if (normalizedGameCenterStatus.value === 'unauthenticated') return '未連接';
+  return '未檢查';
+});
+const showGameCenterGate = computed(() => {
+  if (props.capabilities.provider !== 'gamecenter') return false;
+  return !Boolean(props.gameCenterSession?.isAuthenticated);
+});
 
 const localName = computed(() => props.status.localProfile?.displayName || 'SAMUREYE');
 const localAvatar = computed(() => props.status.localProfile?.avatarEmoji || '🗡️');
-const nowMs = ref(Date.now());
-let countdownTimer = null;
-
-function clearCountdownTimer() {
-  if (!countdownTimer) return;
-  clearInterval(countdownTimer);
-  countdownTimer = null;
-}
-
-function ensureCountdownTimer() {
-  if (countdownTimer) return;
-  countdownTimer = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 120);
-}
-
-const countdownVisible = computed(() => {
-  return props.status.phase === 'matched'
-    && Boolean(props.status.startPending)
-    && !Boolean(props.status.fogPending)
-    && Number.isFinite(Number(props.status.startAtMs))
-    && Number(props.status.startAtMs) > 0;
-});
-
 const fogVisible = computed(() => {
   return props.status.phase === 'matched'
     && Boolean(props.status.startPending)
@@ -131,36 +132,10 @@ const fogVisible = computed(() => {
     && Number(props.status.fogEndAtMs) > 0;
 });
 
-const countdownNumber = computed(() => {
-  if (!countdownVisible.value) return 3;
-  const remainMs = Number(props.status.startAtMs) - nowMs.value;
-  if (remainMs <= 0) return 1;
-  return Math.max(1, Math.ceil(remainMs / 1000));
-});
-
 const readyButtonLabel = computed(() => {
   if (!props.status.startPending) return props.status.localReady ? '取消準備' : '準備對戰';
   return '準備中...';
 });
 
-const overlayActive = computed(() => countdownVisible.value);
-
-watch(
-  overlayActive,
-  (visible) => {
-    nowMs.value = Date.now();
-    if (visible) {
-      ensureCountdownTimer();
-      return;
-    }
-    clearCountdownTimer();
-  },
-  { immediate: true }
-);
-
-onBeforeUnmount(() => {
-  clearCountdownTimer();
-});
-
-defineEmits(['back-home', 'sign-in', 'start-match', 'cancel-match', 'ready-battle']);
+defineEmits(['back-home', 'open-settings', 'start-match', 'cancel-match', 'ready-battle']);
 </script>

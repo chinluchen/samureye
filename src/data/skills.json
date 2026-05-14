@@ -195,59 +195,74 @@
         "cooldownSec": 1.0
       },
       "logic": {
-        "skillType": "control_attack",
+        "skillType": "visual_disrupt",
         "targetRule": "opponent",
-        "effectType": "damage_status",
-        "effectMode": "single_hit",
-        "baseEffectValue": 50,
+        "effectType": "visual_disrupt",
+        "effectMode": "status_effect",
+        "statusEffectId": "prism_displacement",
+        "baseEffectValue": 0,
         "hitCount": 1,
-        "valuePerHit": 50,
-        "pvpAuthoritativeValue": 50,
+        "valuePerHit": 0,
+        "pvpAuthoritativeValue": 0,
+        "effectDurationMs": 3000,
+        "successRate": 1.0,
+        "failReason": "resisted",
         "timing": {
-          "startAtMs": 1200,
+          "startAtMs": 500,
           "intervalMs": 0,
-          "pauseDurationMs": 3700,
+          "pauseDurationMs": 2200,
           "timeSyncField": "battleRemainingMsAtCast",
           "resolveMode": "single_result"
         },
         "hitPattern": {
-          "type": "single_hit",
-          "damage": 50,
-          "status": "prism_confusion",
-          "durationMs": 2500
+          "type": "status_effect",
+          "status": "prism_displacement",
+          "durationMs": 3000
         },
         "statusEffects": {
-          "id": "prism_confusion",
+          "id": "prism_displacement",
           "target": "opponent",
-          "durationMs": 2500,
+          "durationMs": 3000,
           "tickMs": 0,
-          "hasStatusEffect": true
+          "hasStatusEffect": true,
+          "mode": "snap",
+          "offsetX": 80,
+          "offsetY": -45,
+          "targetVisualKey": "prism_displacement_snap",
+          "endVisualKey": "prism_snap_back",
+          "casterFeedbackText": "技能施放成功",
+          "failReason": "resisted",
+          "successRate": 1.0
         }
       },
+      "pvp": {
+        "syncMode": "host_result_with_status",
+        "successRate": 1.0
+      },
       "execution": {
-        "pveStrategy": "local_single_hit_status",
-        "pvpStrategy": "host_result_status",
+        "pveStrategy": "local_visual_disrupt_status",
+        "pvpStrategy": "host_result_with_status",
         "pvpAuthoritySource": "host",
         "sendSkillDamagePacket": false,
         "generateHitEvents": false,
-        "targetView": "caster,target",
+        "targetView": "target",
         "skillEndCondition": "effect_completed_then_resume",
         "battleOutcomeTiming": "skill_end_after_effect",
-        "pvpPacketRule": "host產生單次權威result與狀態效果；雙方同步播放稜鏡破碎/折射干擾動畫"
+        "pvpPacketRule": "host權威送出skill_cast.result.success與statusEffect(offsetX/offsetY/durationMs/effectStartAtMs/effectEndAtMs)；目標端只能依host資料snap偏移與snap回正"
       },
       "visualBinding": {
         "castVisualKey": "prism_cast",
-        "hitVisualKey": "prism_break_burst",
-        "impactVisualKey": "screen_refract_hit",
-        "durationVisualKey": "prism_refract_overlay",
-        "damageTextMode": "single",
-        "textColor": "red",
+        "hitVisualKey": "prism_displacement_snap",
+        "impactVisualKey": "prism_result_text",
+        "durationVisualKey": "prism_displacement_hold",
+        "damageTextMode": "none",
+        "textColor": "cyan",
         "audioKey": "prism_break",
-        "hapticMode": "medium",
-        "animationStyle": "稜鏡碎裂爆光、畫面折射偏移，目標端出現短暫視覺干擾。"
+        "hapticMode": "light",
+        "animationStyle": "命中成功時只在目標端snap偏移視標，結束時snap回正；施放者端只顯示成功/失敗文字。"
       },
-      "description": "造成50傷害並讓對手短時間出現稜鏡折射干擾。",
-      "devNotes": "未完成技能之一：此列補足PvP/PvE與動畫key，實際強度可再平衡。"
+      "description": "以稜鏡錯位干擾對手視標，不造成直接傷害；命中後目標視標立即偏移，持續3秒後立即回正。",
+      "devNotes": "PvP由host權威決定success、offset與時間軸；caster只顯示結果提示，不套用偏移。"
     },
     {
       "order": 6,

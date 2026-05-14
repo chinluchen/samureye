@@ -12,10 +12,20 @@ function clampInt(value, min = 0, fallback = 0) {
   return Math.max(min, toInt(value, fallback));
 }
 
+function clampNumber(value, min = 0, max = 1, fallback = 0) {
+  const n = toNumber(value, fallback);
+  return Math.max(min, Math.min(max, n));
+}
+
 function safeString(value, fallback = '') {
   const text = typeof value === 'string' ? value : String(value ?? '');
   return text.trim() || fallback;
 }
+
+const DEFAULT_CAST_FEEDBACK = Object.freeze({
+  success: '技能施放成功',
+  failed: '技能施放失敗'
+});
 
 export function resolveSkillEffectType(skill = null) {
   return safeString(skill?.effectType || skill?.logic?.effectType, 'damage');
@@ -149,6 +159,7 @@ export function buildHostAuthoritativeSkillCast({
 } = {}) {
   const effectType = resolveSkillEffectType(skill);
   const isHeal = effectType === 'heal';
+  const isVisualDisrupt = effectType === 'visual_disrupt';
   const skillId = safeString(skill?.id || skill?.skillId);
   const animationKey = safeString(skill?.animationKey, skillId);
   const hitEvents = (!isHeal && shouldUseHitEventsForSkill(skill))
@@ -167,19 +178,100 @@ export function buildHostAuthoritativeSkillCast({
       target: safeString(skill.statusEffects.target),
       durationMs: clampInt(skill.statusEffects.durationMs, 0, 0),
       tickMs: clampInt(skill.statusEffects.tickMs, 0, 0),
-      hasStatusEffect: Boolean(skill.statusEffects.hasStatusEffect)
+      hasStatusEffect: Boolean(skill.statusEffects.hasStatusEffect),
+      mode: safeString(skill.statusEffects.mode, 'snap'),
+      offsetX: toInt(skill.statusEffects.offsetX, 0),
+      offsetY: toInt(skill.statusEffects.offsetY, 0),
+      success: true,
+      effectStartAtMs: castStartAtMs,
+      effectEndAtMs: castStartAtMs + clampInt(skill.statusEffects.durationMs, 0, 0),
+      effectStartBattleRemainingMs: clampInt(battleRemainingMsAtCast, 0, 0),
+      effectEndBattleRemainingMs: Math.max(0, clampInt(battleRemainingMsAtCast, 0, 0) - clampInt(skill.statusEffects.durationMs, 0, 0)),
+      targetVisualKey: safeString(skill.statusEffects.targetVisualKey),
+      endVisualKey: safeString(skill.statusEffects.endVisualKey),
+      casterFeedbackText: safeString(skill.statusEffects.casterFeedbackText),
+      failReason: safeString(skill.statusEffects.failReason)
     }
     : {
       id: '',
       target: '',
       durationMs: 0,
       tickMs: 0,
-      hasStatusEffect: false
+      hasStatusEffect: false,
+      mode: 'snap',
+      offsetX: 0,
+      offsetY: 0,
+      success: true,
+      effectStartAtMs: castStartAtMs,
+      effectEndAtMs: castStartAtMs,
+      effectStartBattleRemainingMs: clampInt(battleRemainingMsAtCast, 0, 0),
+      effectEndBattleRemainingMs: clampInt(battleRemainingMsAtCast, 0, 0),
+      targetVisualKey: '',
+      endVisualKey: '',
+      casterFeedbackText: '',
+      failReason: ''
     };
+
+  const effectDurationMs = clampInt(skill?.effectDurationMs ?? statusEffects.durationMs, 0, statusEffects.durationMs);
+  if (effectDurationMs > 0) {
+    statusEffects.durationMs = effectDurationMs;
+  }
+  const pvpSyncMode = safeString(skill?.pvpSyncMode || skill?.pvp?.syncMode || skill?.pvp?.sync_mode);
+  const lifecyclePvpSyncMode = safeString(
+    pvpSyncMode
+      || skill?.pvpStrategy
+      || skill?.execution?.pvpStrategy,
+    'host_result'
+  );
+  const lifecycle = {
+    castFeedback: {
+      success: safeString(
+        skill?.statusEffects?.casterFeedbackText
+          || skill?.castFeedback?.success,
+        DEFAULT_CAST_FEEDBACK.success
+      ),
+      failed: safeString(
+        skill?.castFeedback?.failed,
+        DEFAULT_CAST_FEEDBACK.failed
+      )
+    },
+    castStartAnimation: safeString(
+      skill?.castVisualKey
+        || skill?.visualBinding?.castVisualKey
+        || skill?.animationKey,
+      'fallback_cast_start'
+    ),
+    effectStart: safeString(
+      skill?.hitVisualKey
+        || skill?.visualBinding?.hitVisualKey
+        || skill?.animationKey,
+      'fallback_effect_start'
+    ),
+    effectEnd: safeString(
+      skill?.endVisualKey
+        || skill?.statusEffects?.endVisualKey
+        || skill?.visualBinding?.durationVisualKey,
+      'fallback_effect_end'
+    ),
+    castEndAnimation: safeString(
+      skill?.endVisualKey
+        || skill?.statusEffects?.endVisualKey
+        || skill?.animationKey,
+      'fallback_cast_end'
+    ),
+    pvpSyncMode: lifecyclePvpSyncMode
+  };
 
   let result = {
     outcome: 'effect_only',
-    damage: 0
+    damage: 0,
+    success: true,
+    failReason: ''
+  };
+  let castResult = {
+    success: true,
+    failReason: '',
+    outcome: 'effect_only'
   };
 
   if (isHeal) {
@@ -191,20 +283,119 @@ export function buildHostAuthoritativeSkillCast({
     result = {
       outcome: heal.actualHeal > 0 ? 'heal' : 'effect_only',
       damage: 0,
+      success: true,
+      failReason: '',
       heal
+    };
+    castResult = {
+      success: true,
+      failReason: '',
+      outcome: result.outcome
+    };
+  } else if (isVisualDisrupt) {
+    const successRate = clampNumber(
+      skill?.successRate
+        ?? skill?.statusEffects?.successRate
+        ?? skill?.pvp?.successRate,
+      0,
+      1,
+      1
+    );
+    const success = Math.random() < successRate;
+    const failReason = safeString(skill?.failReason || statusEffects.failReason, 'resisted');
+    const rawOffsetX = toInt(statusEffects.offsetX, 0);
+    const rawOffsetY = toInt(statusEffects.offsetY, 0);
+    const offsetX = (rawOffsetX === 0 && rawOffsetY === 0 && skillId === 'prism-break') ? 80 : rawOffsetX;
+    const offsetY = (rawOffsetX === 0 && rawOffsetY === 0 && skillId === 'prism-break') ? -45 : rawOffsetY;
+    result = {
+      outcome: success ? 'success' : 'failed',
+      success,
+      damage: 0,
+      failReason: success ? '' : failReason,
+      statusEffect: {
+        id: statusEffects.id || 'prism_displacement',
+        success,
+        mode: statusEffects.mode || 'snap',
+        offsetX: success ? offsetX : 0,
+        offsetY: success ? offsetY : 0,
+        durationMs: statusEffects.durationMs,
+        effectStartAtMs: castStartAtMs,
+        effectEndAtMs: castStartAtMs + Math.max(0, statusEffects.durationMs),
+        effectStartBattleRemainingMs: resolvedBattleRemainingMs,
+        effectEndBattleRemainingMs: Math.max(0, resolvedBattleRemainingMs - Math.max(0, statusEffects.durationMs)),
+        targetVisualKey: statusEffects.targetVisualKey || 'prism_displacement_snap',
+        endVisualKey: statusEffects.endVisualKey || 'prism_snap_back',
+        casterFeedbackText: success
+          ? safeString(statusEffects.casterFeedbackText, '技能施放成功')
+          : '技能施放失敗',
+        failReason: success ? '' : failReason
+      }
+    };
+    castResult = {
+      success,
+      failReason: success ? '' : failReason,
+      outcome: result.outcome
     };
   } else if (hitEvents.length > 0) {
     const totalDamage = hitEvents.reduce((sum, hit) => sum + Math.max(0, toInt(hit.damage, 0)), 0);
     result = {
       outcome: totalDamage > 0 ? 'damage' : 'effect_only',
-      damage: totalDamage
+      damage: totalDamage,
+      success: true,
+      failReason: ''
+    };
+    castResult = {
+      success: true,
+      failReason: '',
+      outcome: result.outcome
     };
   } else {
     const singleDamage = resolveDamageTotal(skill);
     result = {
       outcome: singleDamage > 0 ? 'damage' : 'effect_only',
-      damage: singleDamage
+      damage: singleDamage,
+      success: true,
+      failReason: ''
     };
+    castResult = {
+      success: true,
+      failReason: '',
+      outcome: result.outcome
+    };
+  }
+
+  if (isVisualDisrupt) {
+    const resultStatus = result?.statusEffect && typeof result.statusEffect === 'object'
+      ? result.statusEffect
+      : null;
+    statusEffects.id = safeString(resultStatus?.id || statusEffects.id || 'prism_displacement');
+    statusEffects.mode = safeString(resultStatus?.mode || statusEffects.mode || 'snap');
+    statusEffects.success = typeof resultStatus?.success === 'boolean'
+      ? resultStatus.success
+      : (result?.outcome !== 'failed');
+    statusEffects.offsetX = toInt(resultStatus?.offsetX, statusEffects.success ? statusEffects.offsetX : 0);
+    statusEffects.offsetY = toInt(resultStatus?.offsetY, statusEffects.success ? statusEffects.offsetY : 0);
+    statusEffects.effectStartAtMs = clampInt(resultStatus?.effectStartAtMs, 0, castStartAtMs);
+    statusEffects.effectEndAtMs = clampInt(
+      resultStatus?.effectEndAtMs,
+      statusEffects.effectStartAtMs,
+      statusEffects.effectStartAtMs + statusEffects.durationMs
+    );
+    statusEffects.effectStartBattleRemainingMs = clampInt(
+      resultStatus?.effectStartBattleRemainingMs,
+      0,
+      resolvedBattleRemainingMs
+    );
+    statusEffects.effectEndBattleRemainingMs = clampInt(
+      resultStatus?.effectEndBattleRemainingMs,
+      0,
+      Math.max(0, statusEffects.effectStartBattleRemainingMs - statusEffects.durationMs)
+    );
+    statusEffects.targetVisualKey = safeString(resultStatus?.targetVisualKey || statusEffects.targetVisualKey || 'prism_displacement_snap');
+    statusEffects.endVisualKey = safeString(resultStatus?.endVisualKey || statusEffects.endVisualKey || 'prism_snap_back');
+    statusEffects.casterFeedbackText = safeString(resultStatus?.casterFeedbackText || statusEffects.casterFeedbackText);
+    statusEffects.failReason = safeString(resultStatus?.failReason || statusEffects.failReason);
+    statusEffects.hasStatusEffect = Boolean(statusEffects.success);
   }
 
   const tailHit = hitEvents.length > 0 ? hitEvents[hitEvents.length - 1] : null;
@@ -233,6 +424,9 @@ export function buildHostAuthoritativeSkillCast({
       tickMs: statusEffects.tickMs,
       effectEndAtMs: statusEffects.durationMs > 0 ? castStartAtMs + statusEffects.durationMs : castStartAtMs
     },
+    pvpSyncMode,
+    castResult,
+    lifecycle,
     hostPlayerId: safeString(hostPlayerId),
     timing: {
       resolveRatio: normalizedResolveRatio
