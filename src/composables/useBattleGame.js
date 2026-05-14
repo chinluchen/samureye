@@ -55,8 +55,9 @@ export function useBattleGame({
   const sfxEnabled = ref(true);
   const bgmEnabled = ref(true);
   const vibrationEnabled = ref(true);
-  const currentTarget = reactive({ rotation: 0, id: 'right' });
+  const currentTarget = reactive({ rotation: 0, id: 'right', offsetX: 0, offsetY: 0 });
   const targetTransform = computed(() => ({ transform: `rotate(${currentTarget.rotation}deg)` }));
+  const reticleOffsetTransform = computed(() => ({ transform: `translate(${currentTarget.offsetX}px, ${currentTarget.offsetY}px)` }));
   const opponentMaxHp = enemyMaxHp;
   const opponentHp = enemyHp;
   const opponentRoundHits = enemyRoundHits;
@@ -739,6 +740,7 @@ export function useBattleGame({
     isSplitting.value = false;
     currentTarget.rotation = 0;
     currentTarget.id = 'right';
+    clearReticleOffset();
     resetPlayerAvatarPosition();
     hideCataractMist();
     if (bgmEnabled.value) sfx.startBgm();
@@ -757,6 +759,7 @@ export function useBattleGame({
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    clearReticleOffset();
     resetPlayerAvatarPosition();
     hideCataractMist();
     sfx.stopBgm();
@@ -834,6 +837,18 @@ export function useBattleGame({
     triggerSlowMotionFinish();
   }
 
+  function setReticleOffset(offset = {}) {
+    const nextX = Math.round(Number(offset?.x ?? 0));
+    const nextY = Math.round(Number(offset?.y ?? 0));
+    currentTarget.offsetX = Number.isFinite(nextX) ? nextX : 0;
+    currentTarget.offsetY = Number.isFinite(nextY) ? nextY : 0;
+  }
+
+  function clearReticleOffset() {
+    currentTarget.offsetX = 0;
+    currentTarget.offsetY = 0;
+  }
+
   if (autoStart) {
     onMounted(initGame);
   }
@@ -875,6 +890,7 @@ export function useBattleGame({
     cutsceneSkillName,
     currentTarget,
     targetTransform,
+    reticleOffsetTransform,
     processSlash,
     useSkill,
     initGame,
@@ -889,6 +905,8 @@ export function useBattleGame({
     finishSkillCinematic,
     applyOpponentDamage,
     applyRemoteDamage,
-    forceOpponentDefeat
+    forceOpponentDefeat,
+    setReticleOffset,
+    clearReticleOffset
   };
 }

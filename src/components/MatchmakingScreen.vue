@@ -29,15 +29,6 @@
         <p v-if="status.errorMessage" class="matchmaking-status-error">{{ status.errorMessage }}</p>
       </div>
 
-      <div v-if="countdownVisible" class="matchmaking-countdown-overlay pixel-border" aria-live="polite">
-        <span class="matchmaking-countdown-fog matchmaking-countdown-fog-a" aria-hidden="true"></span>
-        <span class="matchmaking-countdown-fog matchmaking-countdown-fog-b" aria-hidden="true"></span>
-        <div class="matchmaking-countdown-content">
-          <p class="matchmaking-countdown-title">即將開戰</p>
-          <p class="matchmaking-countdown-number">{{ countdownNumber }}</p>
-        </div>
-      </div>
-
       <div v-if="status.opponentProfile" class="matchmaking-opponent-box">
         <div class="matchmaking-avatar">{{ status.opponentProfile.avatarEmoji || '🥷' }}</div>
         <div>
@@ -79,7 +70,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
   status: {
@@ -99,30 +90,6 @@ const providerLabel = computed(() => {
 
 const localName = computed(() => props.status.localProfile?.displayName || 'SAMUREYE');
 const localAvatar = computed(() => props.status.localProfile?.avatarEmoji || '🗡️');
-const nowMs = ref(Date.now());
-let countdownTimer = null;
-
-function clearCountdownTimer() {
-  if (!countdownTimer) return;
-  clearInterval(countdownTimer);
-  countdownTimer = null;
-}
-
-function ensureCountdownTimer() {
-  if (countdownTimer) return;
-  countdownTimer = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 120);
-}
-
-const countdownVisible = computed(() => {
-  return props.status.phase === 'matched'
-    && Boolean(props.status.startPending)
-    && !Boolean(props.status.fogPending)
-    && Number.isFinite(Number(props.status.startAtMs))
-    && Number(props.status.startAtMs) > 0;
-});
-
 const fogVisible = computed(() => {
   return props.status.phase === 'matched'
     && Boolean(props.status.startPending)
@@ -131,35 +98,9 @@ const fogVisible = computed(() => {
     && Number(props.status.fogEndAtMs) > 0;
 });
 
-const countdownNumber = computed(() => {
-  if (!countdownVisible.value) return 3;
-  const remainMs = Number(props.status.startAtMs) - nowMs.value;
-  if (remainMs <= 0) return 1;
-  return Math.max(1, Math.ceil(remainMs / 1000));
-});
-
 const readyButtonLabel = computed(() => {
   if (!props.status.startPending) return props.status.localReady ? '取消準備' : '準備對戰';
   return '準備中...';
-});
-
-const overlayActive = computed(() => countdownVisible.value);
-
-watch(
-  overlayActive,
-  (visible) => {
-    nowMs.value = Date.now();
-    if (visible) {
-      ensureCountdownTimer();
-      return;
-    }
-    clearCountdownTimer();
-  },
-  { immediate: true }
-);
-
-onBeforeUnmount(() => {
-  clearCountdownTimer();
 });
 
 defineEmits(['back-home', 'sign-in', 'start-match', 'cancel-match', 'ready-battle']);
