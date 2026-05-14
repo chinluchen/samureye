@@ -13,13 +13,9 @@
           <p class="matchmaking-name">{{ localName }}</p>
           <p class="matchmaking-sub">你的對戰名</p>
         </div>
-        <button
-          type="button"
-          class="home-menu-button home-menu-button-active matchmaking-cta-secondary"
-          @click="$emit('sign-in')"
-        >
-          同步帳號
-        </button>
+        <div class="matchmaking-gc-state" :class="`state-${normalizedGameCenterStatus}`">
+          {{ gameCenterStateLabel }}
+        </div>
       </div>
 
       <div v-if="!fogVisible" class="matchmaking-status-box">
@@ -37,9 +33,21 @@
         </div>
       </div>
 
+      <div v-if="showGameCenterGate && !fogVisible" class="matchmaking-gc-gate">
+        <p class="matchmaking-gc-gate-title">尚未連接 Game Center</p>
+        <p class="matchmaking-gc-gate-text">請先到主畫面設定頁面完成連接，再回來開始配對。</p>
+        <button
+          type="button"
+          class="home-menu-button home-menu-button-active matchmaking-cta-secondary"
+          @click="$emit('open-settings')"
+        >
+          前往設定頁
+        </button>
+      </div>
+
       <div v-if="!fogVisible" class="matchmaking-actions">
         <button
-          v-if="status.phase !== 'searching' && status.phase !== 'matched'"
+          v-if="!showGameCenterGate && status.phase !== 'searching' && status.phase !== 'matched'"
           type="button"
           class="home-start-button matchmaking-cta-primary"
           @click="$emit('start-match')"
@@ -47,7 +55,7 @@
           開始配對
         </button>
         <button
-          v-else
+          v-else-if="!showGameCenterGate"
           type="button"
           class="home-start-button matchmaking-cta-cancel"
           @click="$emit('cancel-match')"
@@ -80,12 +88,38 @@ const props = defineProps({
   capabilities: {
     type: Object,
     required: true
+  },
+  gameCenterStatus: {
+    type: String,
+    default: 'unknown'
+  },
+  gameCenterSession: {
+    type: Object,
+    default: () => ({
+      isAuthenticated: false
+    })
   }
 });
 
 const providerLabel = computed(() => {
   if (props.capabilities.provider === 'gamecenter') return 'Game Center';
   return 'Mock';
+});
+const normalizedGameCenterStatus = computed(() => {
+  const text = String(props.gameCenterStatus || '').trim().toLowerCase();
+  if (['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
+  return 'unknown';
+});
+const gameCenterStateLabel = computed(() => {
+  if (normalizedGameCenterStatus.value === 'authenticated') return '已連接';
+  if (normalizedGameCenterStatus.value === 'authenticating') return '檢查中';
+  if (normalizedGameCenterStatus.value === 'error') return '連線異常';
+  if (normalizedGameCenterStatus.value === 'unauthenticated') return '未連接';
+  return '未檢查';
+});
+const showGameCenterGate = computed(() => {
+  if (props.capabilities.provider !== 'gamecenter') return false;
+  return !Boolean(props.gameCenterSession?.isAuthenticated);
 });
 
 const localName = computed(() => props.status.localProfile?.displayName || 'SAMUREYE');
@@ -103,5 +137,5 @@ const readyButtonLabel = computed(() => {
   return '準備中...';
 });
 
-defineEmits(['back-home', 'sign-in', 'start-match', 'cancel-match', 'ready-battle']);
+defineEmits(['back-home', 'open-settings', 'start-match', 'cancel-match', 'ready-battle']);
 </script>

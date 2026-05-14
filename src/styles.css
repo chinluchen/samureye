@@ -594,6 +594,83 @@ button {
   background: #fecaca;
 }
 
+.settings-gamecenter-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-gamecenter-row-input {
+  align-items: start;
+}
+
+.settings-gamecenter-label {
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: #475569;
+}
+
+.settings-gamecenter-status {
+  justify-self: start;
+  border: 2px solid var(--menu-border-ink);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  background: rgba(241, 245, 249, 0.82);
+}
+
+.settings-gamecenter-status.state-authenticated {
+  color: #14532d;
+  background: rgba(187, 247, 208, 0.82);
+}
+
+.settings-gamecenter-status.state-authenticating {
+  color: #1e3a8a;
+  background: rgba(191, 219, 254, 0.82);
+}
+
+.settings-gamecenter-status.state-unauthenticated,
+.settings-gamecenter-status.state-unknown {
+  color: #854d0e;
+  background: rgba(254, 240, 138, 0.82);
+}
+
+.settings-gamecenter-status.state-error {
+  color: #7f1d1d;
+  background: rgba(254, 202, 202, 0.82);
+}
+
+.settings-gamecenter-value {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-gamecenter-input {
+  width: 100%;
+  min-height: 38px;
+  border: 2px solid var(--menu-border-ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.settings-gamecenter-note {
+  margin: -2px 0 2px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1.4;
+}
+
 .leaderboard-screen {
   width: 100%;
   height: 100%;
@@ -744,6 +821,64 @@ button {
 .matchmaking-actions {
   display: grid;
   gap: 8px;
+}
+
+.matchmaking-gc-state {
+  min-height: 40px;
+  min-width: 94px;
+  border: 2px solid var(--menu-border-ink);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  background: rgba(241, 245, 249, 0.82);
+}
+
+.matchmaking-gc-state.state-authenticated {
+  color: #14532d;
+  background: rgba(187, 247, 208, 0.82);
+}
+
+.matchmaking-gc-state.state-authenticating {
+  color: #1e3a8a;
+  background: rgba(191, 219, 254, 0.82);
+}
+
+.matchmaking-gc-state.state-unauthenticated,
+.matchmaking-gc-state.state-unknown {
+  color: #854d0e;
+  background: rgba(254, 240, 138, 0.82);
+}
+
+.matchmaking-gc-state.state-error {
+  color: #7f1d1d;
+  background: rgba(254, 202, 202, 0.82);
+}
+
+.matchmaking-gc-gate {
+  border: 2px solid var(--menu-border-ink);
+  border-radius: 10px;
+  background: rgba(254, 242, 242, 0.72);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.matchmaking-gc-gate-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #7f1d1d;
+}
+
+.matchmaking-gc-gate-text {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #7f1d1d;
 }
 
 .matchmaking-cta-primary,
@@ -1209,33 +1344,6 @@ button {
   background: #d1d5db;
   color: #6b7280;
   box-shadow: none;
-}
-
-.account-dialog-card {
-  gap: 12px;
-}
-
-.account-dialog-input {
-  width: 100%;
-  height: 42px;
-  border: 2px solid #111;
-  border-radius: 8px;
-  padding: 0 10px;
-  font-size: 0.95rem;
-  font-weight: 800;
-}
-
-.account-dialog-note {
-  margin: 0;
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #374151;
-}
-
-.account-dialog-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
 }
 
 .battle-setting-row {

@@ -28,8 +28,10 @@
       v-else-if="currentScreen === 'matchmaking'"
       :status="matchmakingStatus"
       :capabilities="matchCapabilities"
+      :game-center-status="gameCenterStatus"
+      :game-center-session="gameCenterSession"
       @back-home="goHomeFromMatchmaking"
-      @sign-in="syncMatchmakingAccount"
+      @open-settings="goSettingsFromMatchmaking"
       @start-match="startPvPMatchmaking"
       @cancel-match="cancelPvPMatchmaking"
       @ready-battle="markLocalPlayerReady"
@@ -146,16 +148,19 @@
       :sfx-enabled="sfxEnabled"
       :bgm-enabled="bgmEnabled"
       :vibration-enabled="vibrationEnabled"
-      :account-name="accountState.name"
+      :game-center-status="gameCenterStatus"
+      :pvp-nickname="pvpNickname"
+      :game-center-session="gameCenterSession"
       @back-home="goHomeFromSettings"
       @volume-change="setAudioVolume"
       @sfx-volume-change="setSfxVolume"
       @sfx-toggle="setSfxEnabled"
       @bgm-toggle="setBgmEnabled"
       @vibration-toggle="setVibrationEnabled"
-      @login-account="loginAccount"
-      @logout-account="logoutAccount"
-      @delete-account="deleteAccount"
+      @gamecenter-connect="connectGameCenterFromSettings"
+      @gamecenter-refresh="refreshGameCenterFromSettings"
+      @gamecenter-clear-local="clearLocalGameCenterBinding"
+      @pvp-nickname-change="setPvpNickname"
     />
 
     <LeaderboardScreen
@@ -181,48 +186,6 @@
       @toggle-skill="toggleSkillEquip"
     />
 
-    <div v-if="isAccountDialogOpen" class="battle-menu-overlay" @click.self="closeAccountDialog">
-      <div class="battle-menu-card pixel-border account-dialog-card">
-        <h3 class="battle-menu-title">
-          {{ accountDialogMode === 'login' ? '登入帳號' : '刪除帳號' }}
-        </h3>
-
-        <template v-if="accountDialogMode === 'login'">
-          <label class="battle-setting-row">
-            <span class="battle-setting-label">帳號名稱</span>
-            <input
-              v-model.trim="accountInputName"
-              type="text"
-              class="account-dialog-input"
-              maxlength="20"
-              placeholder="例如：SAMUREYE / Player"
-              @keydown.enter.prevent="confirmAccountDialog"
-            >
-          </label>
-          <p class="account-dialog-note">輸入 Player 可啟用進度鎖定測試。</p>
-        </template>
-
-        <template v-else>
-          <p class="account-dialog-note">
-            {{ hasActiveAccount ? `確定刪除帳號「${accountState.name}」嗎？` : '目前沒有已登入帳號可刪除。' }}
-          </p>
-        </template>
-
-        <div class="account-dialog-actions">
-          <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="closeAccountDialog">
-            取消
-          </button>
-          <button
-            type="button"
-            class="battle-menu-button"
-            :disabled="isAccountDialogConfirmDisabled"
-            @click="confirmAccountDialog"
-          >
-            {{ accountDialogMode === 'login' ? '登入' : '刪除' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </main>
 
   <Teleport to="body">
@@ -329,6 +292,7 @@ let appIsInBackground = false;
 let shouldAutoResumeBattleAfterForeground = false;
 let localPvpEventSeq = 0;
 const remotePvpEventSeqByPlayer = new Map();
+const remotePvpDisplayNameByPlayer = new Map();
 let pendingPvpStartTimer = null;
 let pendingPvpFogTimer = null;
 let pendingRootFogFadeOutTimer = null;
@@ -454,37 +418,33 @@ const studyState = reactive({
   }
 });
 const STUDY_SAVE_KEY = 'samureye.study.v1';
-const ACCOUNT_SAVE_KEY = 'samureye.account.v1';
 const SETTINGS_SAVE_KEY = 'samureye.settings.v1';
-const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, ACCOUNT_SAVE_KEY, SETTINGS_SAVE_KEY];
+const GAME_CENTER_SESSION_SAVE_KEY = 'samureye.gamecenter.session.v1';
+const LEGACY_ACCOUNT_SAVE_KEY = 'samureye.account.v1';
+const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, LEGACY_ACCOUNT_SAVE_KEY, SETTINGS_SAVE_KEY, GAME_CENTER_SESSION_SAVE_KEY];
 const STUDY_PROFILE_SCHEMA_VERSION = 4;
 const SETTINGS_SCHEMA_VERSION = 1;
+const GAME_CENTER_SESSION_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
-const PLAYER_TEST_ACCOUNT_KEY = 'player';
-const ADMIN_TEST_ACCOUNT_KEY = 'samureye';
 const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
-const accountState = reactive({
-  name: ''
+let hasHydratedGameCenterSession = false;
+let gameCenterAuthPromise = null;
+const GAME_CENTER_STATUS_SET = ['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'];
+const gameCenterStatus = ref('unknown');
+const gameCenterSession = reactive({
+  isAuthenticated: false,
+  playerId: '',
+  displayName: '',
+  alias: '',
+  gameCenterId: '',
+  lastAuthenticatedAt: 0
 });
-const isAccountDialogOpen = ref(false);
-const accountDialogMode = ref('login');
-const accountInputName = ref('');
+const pvpNickname = ref('');
 const selectedStageId = ref(STAGE_IDS.STAGE_02);
-const isPlayerTestAccount = computed(() => {
-  return (accountState.name || '').trim().toLowerCase() === PLAYER_TEST_ACCOUNT_KEY;
-});
-const isAdminTestAccount = computed(() => {
-  return (accountState.name || '').trim().toLowerCase() === ADMIN_TEST_ACCOUNT_KEY;
-});
-const hasActiveAccount = computed(() => (accountState.name || '').trim().length > 0);
-const isAccountDialogConfirmDisabled = computed(() => {
-  if (accountDialogMode.value === 'login') return (accountInputName.value || '').trim().length === 0;
-  return !hasActiveAccount.value;
-});
 const selectablePlayerSkills = computed(() => {
   return skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
 });
@@ -668,8 +628,6 @@ const isTutorialGuideActive = computed(() => {
 });
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
-  if (isAdminTestAccount.value) return stageList.map(stage => stage.id);
-
   const unlocked = new Set(stageList.filter(stage => stage.unlockByDefault).map(stage => stage.id));
   const cleared = clearedStageSet.value;
   let changed = true;
@@ -694,18 +652,12 @@ const isSkillLoadoutUnlocked = computed(() => {
   return clearedStageSet.value.has(STAGE_IDS.STAGE_01);
 });
 const unlockedTrackKeys = computed(() => {
-  if (!isPlayerTestAccount.value) return ['optometry', 'optics', 'contactLens', 'other'];
-
-  const cleared = clearedStageSet.value;
-  const keys = ['optometry'];
-  if (cleared.has(STAGE_IDS.STAGE_01)) keys.push('optics');
-  if (cleared.has(STAGE_IDS.STAGE_02)) keys.push('contactLens');
-  if (cleared.has(STAGE_IDS.STAGE_03)) keys.push('other');
-  return keys;
+  return ['optometry', 'optics', 'contactLens', 'other'];
 });
 const currentStageConfig = computed(() => {
   return stageList.find(stage => stage.id === selectedStageId.value) ?? stageList[0];
 });
+const isGameCenterProvider = computed(() => matchCapabilities.provider === 'gamecenter');
 
 const selectedSkills = computed(() => {
   const skillMap = new Map(normalizedSkillPool.value.map(skill => [skill.id, skill]));
@@ -938,6 +890,16 @@ function sanitizeBoolean(value, fallback = false) {
   return fallback;
 }
 
+function sanitizePvpNickname(value, fallback = '') {
+  const normalizedFallback = String(fallback ?? '').trim();
+  const raw = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return normalizedFallback;
+  const clipped = Array.from(raw).slice(0, 16).join('').trim();
+  return clipped || normalizedFallback;
+}
+
 function normalizeTrack(rawTrack = {}) {
   return {
     level: Math.max(0, Math.floor(sanitizeNumber(rawTrack.level, 0))),
@@ -1041,7 +1003,8 @@ function normalizeRuntimeSettings(rawData = {}) {
     sfxVolume: Math.max(0, Math.min(1, sanitizeNumber(data.sfxVolume, sfxVolume.value))),
     sfxEnabled: sanitizeBoolean(data.sfxEnabled, sfxEnabled.value),
     bgmEnabled: sanitizeBoolean(data.bgmEnabled, bgmEnabled.value),
-    vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value)
+    vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value),
+    pvpNickname: sanitizePvpNickname(data.pvpNickname, pvpNickname.value)
   };
 }
 
@@ -1051,7 +1014,8 @@ function snapshotRuntimeSettings() {
     sfxVolume: sfxVolume.value,
     sfxEnabled: sfxEnabled.value,
     bgmEnabled: bgmEnabled.value,
-    vibrationEnabled: vibrationEnabled.value
+    vibrationEnabled: vibrationEnabled.value,
+    pvpNickname: sanitizePvpNickname(pvpNickname.value)
   };
 }
 
@@ -1085,6 +1049,16 @@ function setVibrationEnabled(enabled) {
   persistRuntimeSettingsIfReady();
 }
 
+function setPvpNickname(value = '') {
+  pvpNickname.value = sanitizePvpNickname(value);
+  applyLocalPvpDisplayNameToMatchStatus();
+  applyOpponentPvpDisplayNameToMatchStatus();
+  if (matchmakingStatus.phase === 'matched' || matchmakingStatus.phase === 'searching') {
+    void broadcastLocalPvpProfileSync('nickname_changed');
+  }
+  persistRuntimeSettingsIfReady();
+}
+
 async function loadRuntimeSettings() {
   await ensureStorageReady();
 
@@ -1108,6 +1082,7 @@ async function loadRuntimeSettings() {
     setSfxEnabled(normalized.sfxEnabled);
     setBgmEnabled(normalized.bgmEnabled);
     setVibrationEnabled(normalized.vibrationEnabled);
+    setPvpNickname(normalized.pvpNickname);
   } catch (error) {
     console.warn('Failed to load runtime settings:', error);
   }
@@ -1126,9 +1101,11 @@ async function saveRuntimeSettings() {
 }
 
 function getActiveProfileKey() {
-  const name = (accountState.name || '').trim().toLowerCase();
-  if (!name) return 'guest';
-  return `acct:${name}`;
+  if (gameCenterSession.isAuthenticated) {
+    const playerId = String(gameCenterSession.playerId || gameCenterSession.gameCenterId || '').trim();
+    if (playerId) return `gc:${playerId}`;
+  }
+  return 'guest';
 }
 
 async function ensureStorageReady() {
@@ -1204,20 +1181,6 @@ async function loadStudyStateForActiveAccount() {
   await saveAllStudyProfiles(allProfiles);
 }
 
-async function loadAccountState() {
-  await ensureStorageReady();
-
-  try {
-    const raw = await appStorage.getItem(ACCOUNT_SAVE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.version !== 1 || typeof parsed.data !== 'object') return;
-    accountState.name = typeof parsed.data.name === 'string' ? parsed.data.name : '';
-  } catch (error) {
-    console.warn('Failed to load account state:', error);
-  }
-}
-
 async function saveStudyStateForActiveAccount() {
   const allProfiles = await loadAllStudyProfiles();
   const profileKey = getActiveProfileKey();
@@ -1225,24 +1188,259 @@ async function saveStudyStateForActiveAccount() {
   await saveAllStudyProfiles(allProfiles);
 }
 
-async function saveAccountState() {
+function resolveLocalPvpDisplayName() {
+  const nickname = sanitizePvpNickname(pvpNickname.value);
+  if (nickname) return nickname;
+  const gameCenterName = String(gameCenterSession.displayName || gameCenterSession.alias || '').trim();
+  if (gameCenterName) return gameCenterName;
+  const profileGcName = String(matchmakingStatus.localProfile?.gameCenterDisplayName ?? '').trim();
+  if (profileGcName) return profileGcName;
+  const profileName = String(matchmakingStatus.localProfile?.displayName ?? '').trim();
+  if (profileName) return profileName;
+  return 'SAMUREYE';
+}
+
+function applyLocalPvpDisplayNameToMatchStatus() {
+  if (!matchmakingStatus.localProfile || typeof matchmakingStatus.localProfile !== 'object') return;
+  const baseGcName = String(matchmakingStatus.localProfile.gameCenterDisplayName ?? matchmakingStatus.localProfile.displayName ?? '').trim();
+  if (baseGcName) {
+    matchmakingStatus.localProfile.gameCenterDisplayName = baseGcName;
+  }
+  matchmakingStatus.localProfile.displayName = resolveLocalPvpDisplayName();
+}
+
+function applyOpponentPvpDisplayNameToMatchStatus() {
+  if (!matchmakingStatus.opponentProfile || typeof matchmakingStatus.opponentProfile !== 'object') return;
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const baseGcName = String(matchmakingStatus.opponentProfile.gameCenterDisplayName ?? matchmakingStatus.opponentProfile.displayName ?? '').trim() || '對手連線中';
+  matchmakingStatus.opponentProfile.gameCenterDisplayName = baseGcName;
+  const customName = opponentId ? sanitizePvpNickname(remotePvpDisplayNameByPlayer.get(opponentId), '') : '';
+  matchmakingStatus.opponentProfile.displayName = customName || baseGcName;
+}
+
+async function broadcastLocalPvpProfileSync(reason = 'unknown') {
+  if (matchmakingStatus.phase !== 'matched' && matchmakingStatus.phase !== 'searching') return;
+  const displayName = resolveLocalPvpDisplayName();
+  const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+  if (!displayName || !localPlayerId) return;
+  await sendPvpRealtimeEvent('profile_sync', {
+    displayName,
+    playerId: localPlayerId,
+    reason: String(reason || '').trim()
+  });
+}
+
+function normalizeGameCenterStatus(value = 'unknown') {
+  const text = String(value || '').trim().toLowerCase();
+  if (GAME_CENTER_STATUS_SET.includes(text)) return text;
+  return 'unknown';
+}
+
+function sanitizeGameCenterTimestamp(value = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+function normalizeGameCenterSession(raw = {}) {
+  const next = raw && typeof raw === 'object' ? raw : {};
+  return {
+    isAuthenticated: Boolean(next.isAuthenticated),
+    playerId: String(next.playerId ?? '').trim(),
+    displayName: String(next.displayName ?? '').trim(),
+    alias: String(next.alias ?? '').trim(),
+    gameCenterId: String(next.gameCenterId ?? '').trim(),
+    lastAuthenticatedAt: sanitizeGameCenterTimestamp(next.lastAuthenticatedAt)
+  };
+}
+
+function getGameCenterSessionSnapshot() {
+  return normalizeGameCenterSession(gameCenterSession);
+}
+
+async function saveGameCenterSessionCache() {
+  if (!hasHydratedGameCenterSession) return;
   const payload = {
-    version: 1,
-    data: {
-      name: accountState.name
-    }
+    version: GAME_CENTER_SESSION_SCHEMA_VERSION,
+    data: getGameCenterSessionSnapshot()
   };
   try {
-    await appStorage.setItem(ACCOUNT_SAVE_KEY, JSON.stringify(payload));
+    await appStorage.setItem(GAME_CENTER_SESSION_SAVE_KEY, JSON.stringify(payload));
   } catch (error) {
-    console.warn('Failed to save account state:', error);
+    console.warn('Failed to save Game Center session:', error);
   }
 }
 
-function getPreferredDisplayName() {
-  const name = (accountState.name || '').trim();
-  if (!name) return 'SAMUREYE';
-  return name;
+function applyGameCenterSession(nextRaw = {}, { status = null, persist = true } = {}) {
+  const normalized = normalizeGameCenterSession(nextRaw);
+  const prev = getGameCenterSessionSnapshot();
+  const nextStatus = normalizeGameCenterStatus(status ?? (normalized.isAuthenticated ? 'authenticated' : 'unauthenticated'));
+
+  gameCenterSession.isAuthenticated = normalized.isAuthenticated;
+  gameCenterSession.playerId = normalized.playerId;
+  gameCenterSession.displayName = normalized.displayName;
+  gameCenterSession.alias = normalized.alias;
+  gameCenterSession.gameCenterId = normalized.gameCenterId;
+  gameCenterSession.lastAuthenticatedAt = normalized.lastAuthenticatedAt;
+  gameCenterStatus.value = nextStatus;
+
+  const changed = prev.isAuthenticated !== normalized.isAuthenticated
+    || prev.playerId !== normalized.playerId
+    || prev.displayName !== normalized.displayName
+    || prev.alias !== normalized.alias
+    || prev.gameCenterId !== normalized.gameCenterId
+    || prev.lastAuthenticatedAt !== normalized.lastAuthenticatedAt;
+
+  if (changed && persist) {
+    void saveGameCenterSessionCache();
+  }
+}
+
+function buildGameCenterSessionFromProfile(profile = {}, { isAuthenticated = false } = {}) {
+  const playerId = String(profile?.id ?? '').trim();
+  const gameCenterId = String(profile?.gameCenterId ?? '').trim();
+  const displayName = String(profile?.gameCenterDisplayName ?? profile?.displayName ?? '').trim();
+  const alias = displayName;
+  const keepTimestamp = sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt);
+  return normalizeGameCenterSession({
+    isAuthenticated,
+    playerId,
+    displayName,
+    alias,
+    gameCenterId,
+    lastAuthenticatedAt: isAuthenticated ? (keepTimestamp || Date.now()) : keepTimestamp
+  });
+}
+
+function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
+  if (!isGameCenterProvider.value) return;
+  const phase = String(nextStatus.phase ?? '').trim().toLowerCase();
+  const localProfile = nextStatus.localProfile && typeof nextStatus.localProfile === 'object'
+    ? nextStatus.localProfile
+    : {};
+  const candidate = buildGameCenterSessionFromProfile(localProfile, { isAuthenticated: true });
+  const hasIdentity = Boolean(candidate.playerId || candidate.gameCenterId);
+
+  if (hasIdentity) {
+    const wasAuthenticated = Boolean(gameCenterSession.isAuthenticated);
+    const previousTimestamp = sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt);
+    applyGameCenterSession({
+      ...candidate,
+      isAuthenticated: true,
+      lastAuthenticatedAt: previousTimestamp || Date.now()
+    }, { status: 'authenticated' });
+    if (!wasAuthenticated) {
+      console.info('GameCenter session restored');
+    }
+    return;
+  }
+
+  if (phase === 'auth_required') {
+    applyGameCenterSession({
+      isAuthenticated: false,
+      playerId: '',
+      displayName: '',
+      alias: '',
+      gameCenterId: '',
+      lastAuthenticatedAt: sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt)
+    }, { status: 'unauthenticated' });
+    return;
+  }
+
+  if (phase === 'error') {
+    gameCenterStatus.value = 'error';
+  }
+}
+
+async function loadGameCenterSessionCache() {
+  await ensureStorageReady();
+  try {
+    const raw = await appStorage.getItem(GAME_CENTER_SESSION_SAVE_KEY);
+    if (!raw) {
+      hasHydratedGameCenterSession = true;
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    const data = parsed?.version === GAME_CENTER_SESSION_SCHEMA_VERSION && parsed?.data && typeof parsed.data === 'object'
+      ? parsed.data
+      : parsed;
+    const normalized = normalizeGameCenterSession(data);
+    const restoredStatus = normalized.isAuthenticated ? 'authenticated' : 'unauthenticated';
+    applyGameCenterSession(normalized, { status: restoredStatus, persist: false });
+    if (normalized.isAuthenticated) {
+      console.info('GameCenter session restored');
+    }
+  } catch (error) {
+    console.warn('Failed to load Game Center session:', error);
+  } finally {
+    hasHydratedGameCenterSession = true;
+  }
+}
+
+async function ensureGameCenterAuthenticated({ source = 'unknown', interactive = false, force = false } = {}) {
+  if (!isGameCenterProvider.value) {
+    gameCenterStatus.value = 'authenticated';
+    return getGameCenterSessionSnapshot();
+  }
+
+  if (!interactive && !force && gameCenterSession.isAuthenticated) {
+    gameCenterStatus.value = 'authenticated';
+    return getGameCenterSessionSnapshot();
+  }
+
+  if (gameCenterAuthPromise) return gameCenterAuthPromise;
+  gameCenterStatus.value = 'authenticating';
+  gameCenterAuthPromise = (async () => {
+    try {
+      await matchService.signIn({
+        displayName: resolveLocalPvpDisplayName(),
+        silent: !interactive
+      });
+      syncGameCenterSessionFromMatchStatus(matchmakingStatus);
+      if (interactive && gameCenterSession.isAuthenticated) {
+        console.info('GameCenter authenticated from settings');
+      }
+      if (!gameCenterSession.isAuthenticated && gameCenterStatus.value !== 'error') {
+        gameCenterStatus.value = 'unauthenticated';
+      }
+    } catch (error) {
+      gameCenterStatus.value = 'error';
+      console.warn(`[GameCenter] ensureGameCenterAuthenticated failed (source=${source}):`, error);
+    }
+    return getGameCenterSessionSnapshot();
+  })();
+
+  try {
+    return await gameCenterAuthPromise;
+  } finally {
+    gameCenterAuthPromise = null;
+  }
+}
+
+async function connectGameCenterFromSettings() {
+  console.info('GameCenter settings connect clicked');
+  await ensureGameCenterAuthenticated({ source: 'settings_connect', interactive: true });
+}
+
+async function refreshGameCenterFromSettings() {
+  await ensureGameCenterAuthenticated({ source: 'settings_refresh', interactive: false, force: true });
+}
+
+async function clearLocalGameCenterBinding() {
+  await ensureStorageReady();
+  try {
+    await appStorage.removeItem(GAME_CENTER_SESSION_SAVE_KEY);
+  } catch (error) {
+    console.warn('Failed to clear Game Center session cache:', error);
+  }
+  applyGameCenterSession({
+    isAuthenticated: false,
+    playerId: '',
+    displayName: '',
+    alias: '',
+    gameCenterId: '',
+    lastAuthenticatedAt: 0
+  }, { status: 'unauthenticated', persist: false });
 }
 
 function applyMatchStatus(nextStatus = {}) {
@@ -1259,16 +1457,22 @@ function applyMatchStatus(nextStatus = {}) {
   };
   matchmakingStatus.opponentProfile = nextStatus.opponentProfile ?? null;
   matchmakingStatus.errorMessage = nextStatus.errorMessage ?? '';
+  applyLocalPvpDisplayNameToMatchStatus();
+  applyOpponentPvpDisplayNameToMatchStatus();
 
   const nextPhase = matchmakingStatus.phase;
   if (nextPhase === 'matched' && prevPhase !== 'matched') {
     resetPvpRealtimeState();
+    applyLocalPvpDisplayNameToMatchStatus();
+    applyOpponentPvpDisplayNameToMatchStatus();
+    void broadcastLocalPvpProfileSync('matched_enter');
   }
   if (nextPhase !== 'matched') {
     resetPvpReadyState();
   } else {
     refreshPvpReadyMessage();
   }
+  syncGameCenterSessionFromMatchStatus(matchmakingStatus);
 }
 
 function clearRootCountdownTimer() {
@@ -2416,6 +2620,9 @@ function markLocalPlayerReady() {
   matchmakingStatus.localReady = nextReady;
   refreshPvpReadyMessage();
   console.info(`[PvP Sync] 本機${nextReady ? '送出ready' : '取消ready'}`);
+  if (nextReady) {
+    void broadcastLocalPvpProfileSync('local_ready');
+  }
   void sendPvpRealtimeEvent('ready', { ready: nextReady });
   if (!nextReady) return;
   checkBothReady('local_ready');
@@ -2429,6 +2636,7 @@ function nextLocalPvpEventSeq() {
 function resetPvpRealtimeState() {
   localPvpEventSeq = 0;
   remotePvpEventSeqByPlayer.clear();
+  remotePvpDisplayNameByPlayer.clear();
   resetPvpReadyState();
 }
 
@@ -2696,6 +2904,25 @@ function handlePvpRealtimeEvent(packet = {}) {
     return;
   }
 
+  if (type === 'profile_sync') {
+    const sourcePlayerId = String(normalizedPacket?._sourcePlayerId ?? normalizedPacket?.payload?.playerId ?? '').trim();
+    const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+    if (!sourcePlayerId || sourcePlayerId === localPlayerId) return;
+    const customName = sanitizePvpNickname(normalizedPacket?.payload?.displayName, '');
+    if (!customName) return;
+    remotePvpDisplayNameByPlayer.set(sourcePlayerId, customName);
+    if (matchmakingStatus.opponentProfile && typeof matchmakingStatus.opponentProfile === 'object') {
+      const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+      if (!opponentId) {
+        matchmakingStatus.opponentProfile.id = sourcePlayerId;
+      }
+      if (!opponentId || opponentId === sourcePlayerId) {
+        applyOpponentPvpDisplayNameToMatchStatus();
+      }
+    }
+    return;
+  }
+
   if (type === 'start_battle' || type === 'battle_start') {
     if (matchmakingStatus.phase !== 'matched') return;
     const mode = String(normalizedPacket?.payload?.mode ?? '').trim().toLowerCase();
@@ -2944,7 +3171,7 @@ function handleAppForeground() {
 }
 
 onMounted(async () => {
-  await loadAccountState();
+  await loadGameCenterSessionCache();
   await loadStudyStateForActiveAccount();
   await loadRuntimeSettings();
   hasHydratedRuntimeSettings = true;
@@ -2953,6 +3180,9 @@ onMounted(async () => {
   setBgmEnabled(bgmEnabled.value);
   if (bgmEnabled.value) sfx.ensureBgmRunning();
 
+  if (matchService.providerName === 'gamecenter') {
+    console.info('GameCenter auto-auth on app start');
+  }
   matchService.init()
     .then((capabilities) => {
       Object.assign(matchCapabilities, capabilities ?? {});
@@ -3094,16 +3324,12 @@ watch(
 );
 
 watch(
-  accountState,
-  () => {
-    void saveAccountState();
+  () => getActiveProfileKey(),
+  (nextKey, prevKey) => {
+    if (nextKey === prevKey) return;
     void loadStudyStateForActiveAccount();
-    void matchService.signIn({
-      displayName: getPreferredDisplayName(),
-      silent: true
-    });
   },
-  { deep: true }
+  { flush: 'post' }
 );
 
 watch(unlockedStageIds, (ids) => {
@@ -3211,19 +3437,44 @@ function startPvpBattle() {
 }
 
 function openMatchmaking() {
+  console.info('PvP page opened, checking existing GameCenter session only');
   currentScreen.value = 'matchmaking';
-}
-
-async function syncMatchmakingAccount() {
-  await matchService.signIn({
-    displayName: getPreferredDisplayName()
+  void ensureGameCenterAuthenticated({ source: 'pvp_page_open', interactive: false }).then(() => {
+    if (!isGameCenterProvider.value) return;
+    if (gameCenterSession.isAuthenticated) return;
+    if (currentScreen.value !== 'matchmaking') return;
+    if (matchmakingStatus.phase === 'searching' || matchmakingStatus.phase === 'matched') return;
+    applyMatchStatus({
+      ...matchmakingStatus,
+      phase: 'auth_required',
+      message: '請先到主畫面設定頁面連接 Game Center。',
+      errorMessage: ''
+    });
   });
 }
 
+function goSettingsFromMatchmaking() {
+  currentScreen.value = 'settings';
+}
+
 async function startPvPMatchmaking() {
+  console.info('PvP start matchmaking clicked');
+  if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
+    await ensureGameCenterAuthenticated({ source: 'pvp_start_guard', interactive: false });
+  }
+  if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
+    console.info('PvP blocked: Game Center not authenticated');
+    applyMatchStatus({
+      ...matchmakingStatus,
+      phase: 'auth_required',
+      message: '請先到主畫面設定頁面連接 Game Center。',
+      errorMessage: ''
+    });
+    return;
+  }
   resetPvpRealtimeState();
   await matchService.startMatchmaking({
-    displayName: getPreferredDisplayName(),
+    displayName: resolveLocalPvpDisplayName(),
     characterId: playerConfig.characterId,
     equippedSkillIds: buildFilledSkillIds(playerConfig.equippedSkillIds)
   });
@@ -3386,48 +3637,6 @@ function toggleSkillEquip(skillId) {
 
   if (playerConfig.equippedSkillIds.length >= MAX_SKILL_SLOTS) return;
   playerConfig.equippedSkillIds = [...playerConfig.equippedSkillIds, skillId];
-}
-
-function loginAccount() {
-  accountDialogMode.value = 'login';
-  accountInputName.value = accountState.name || 'SAMUREYE';
-  isAccountDialogOpen.value = true;
-}
-
-function logoutAccount() {
-  accountState.name = '';
-}
-
-function deleteAccount() {
-  accountDialogMode.value = 'delete';
-  isAccountDialogOpen.value = true;
-}
-
-function closeAccountDialog() {
-  isAccountDialogOpen.value = false;
-  accountInputName.value = '';
-}
-
-async function confirmAccountDialog() {
-  if (accountDialogMode.value === 'login') {
-    const name = (accountInputName.value || '').trim();
-    if (!name) return;
-    accountState.name = name;
-    closeAccountDialog();
-    return;
-  }
-
-  if (!hasActiveAccount.value) {
-    closeAccountDialog();
-    return;
-  }
-
-  const allProfiles = await loadAllStudyProfiles();
-  const profileKey = getActiveProfileKey();
-  delete allProfiles.profiles[profileKey];
-  await saveAllStudyProfiles(allProfiles);
-  accountState.name = '';
-  closeAccountDialog();
 }
 
 function addStudyKnowledgePoints(points) {
