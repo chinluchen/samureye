@@ -3,7 +3,7 @@
     <header class="settings-header">
       <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
       <h2 class="settings-title">玩家對戰</h2>
-      <div class="settings-account">{{ providerLabel }}</div>
+      <div aria-hidden="true"></div>
     </header>
 
     <article class="settings-card pixel-border matchmaking-card">
@@ -91,7 +91,7 @@ const props = defineProps({
   },
   gameCenterStatus: {
     type: String,
-    default: 'unknown'
+    default: 'checking'
   },
   gameCenterSession: {
     type: Object,
@@ -101,18 +101,14 @@ const props = defineProps({
   }
 });
 
-const providerLabel = computed(() => {
-  if (props.capabilities.provider === 'gamecenter') return 'Game Center';
-  return 'Mock';
-});
 const normalizedGameCenterStatus = computed(() => {
   const text = String(props.gameCenterStatus || '').trim().toLowerCase();
-  if (['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
-  return 'unknown';
+  if (['checking', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
+  return 'checking';
 });
 const gameCenterStateLabel = computed(() => {
   if (normalizedGameCenterStatus.value === 'authenticated') return '已連接';
-  if (normalizedGameCenterStatus.value === 'authenticating') return '檢查中';
+  if (normalizedGameCenterStatus.value === 'checking') return '檢查中';
   if (normalizedGameCenterStatus.value === 'error') return '連線異常';
   if (normalizedGameCenterStatus.value === 'unauthenticated') return '未連接';
   return '未檢查';

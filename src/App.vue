@@ -53,6 +53,7 @@
         <CutsceneLayer
           :is-enemy-turn="isEnemyTurn"
           :skill-name="cutsceneSkillName"
+          :player-portrait-url="selectedCharacter.cutsceneFrontUrl || selectedCharacter.avatarUrl"
           :animation-meta="activeSkillAnimation"
         />
 
@@ -433,8 +434,9 @@ let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
 let hasHydratedGameCenterSession = false;
 let gameCenterAuthPromise = null;
-const GAME_CENTER_STATUS_SET = ['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'];
-const gameCenterStatus = ref('unknown');
+const GAME_CENTER_STATUS_SET = ['checking', 'authenticated', 'unauthenticated', 'error'];
+const gameCenterStatus = ref('checking');
+const gameCenterBindingEnabled = ref(true);
 const gameCenterSession = reactive({
   isAuthenticated: false,
   playerId: '',
@@ -1004,7 +1006,8 @@ function normalizeRuntimeSettings(rawData = {}) {
     sfxEnabled: sanitizeBoolean(data.sfxEnabled, sfxEnabled.value),
     bgmEnabled: sanitizeBoolean(data.bgmEnabled, bgmEnabled.value),
     vibrationEnabled: sanitizeBoolean(data.vibrationEnabled, vibrationEnabled.value),
-    pvpNickname: sanitizePvpNickname(data.pvpNickname, pvpNickname.value)
+    pvpNickname: sanitizePvpNickname(data.pvpNickname, pvpNickname.value),
+    gameCenterBindingEnabled: sanitizeBoolean(data.gameCenterBindingEnabled, true)
   };
 }
 
@@ -1015,7 +1018,8 @@ function snapshotRuntimeSettings() {
     sfxEnabled: sfxEnabled.value,
     bgmEnabled: bgmEnabled.value,
     vibrationEnabled: vibrationEnabled.value,
-    pvpNickname: sanitizePvpNickname(pvpNickname.value)
+    pvpNickname: sanitizePvpNickname(pvpNickname.value),
+    gameCenterBindingEnabled: sanitizeBoolean(gameCenterBindingEnabled.value, true)
   };
 }
 
@@ -1059,6 +1063,13 @@ function setPvpNickname(value = '') {
   persistRuntimeSettingsIfReady();
 }
 
+function setGameCenterBindingEnabled(enabled, { persist = true } = {}) {
+  gameCenterBindingEnabled.value = sanitizeBoolean(enabled, true);
+  if (persist) {
+    persistRuntimeSettingsIfReady();
+  }
+}
+
 async function loadRuntimeSettings() {
   await ensureStorageReady();
 
@@ -1083,6 +1094,7 @@ async function loadRuntimeSettings() {
     setBgmEnabled(normalized.bgmEnabled);
     setVibrationEnabled(normalized.vibrationEnabled);
     setPvpNickname(normalized.pvpNickname);
+    setGameCenterBindingEnabled(normalized.gameCenterBindingEnabled, { persist: false });
   } catch (error) {
     console.warn('Failed to load runtime settings:', error);
   }
@@ -1230,10 +1242,10 @@ async function broadcastLocalPvpProfileSync(reason = 'unknown') {
   });
 }
 
-function normalizeGameCenterStatus(value = 'unknown') {
+function normalizeGameCenterStatus(value = 'checking') {
   const text = String(value || '').trim().toLowerCase();
   if (GAME_CENTER_STATUS_SET.includes(text)) return text;
-  return 'unknown';
+  return 'checking';
 }
 
 function sanitizeGameCenterTimestamp(value = 0) {
@@ -1266,6 +1278,7 @@ async function saveGameCenterSessionCache() {
   };
   try {
     await appStorage.setItem(GAME_CENTER_SESSION_SAVE_KEY, JSON.stringify(payload));
+    console.info('GameCenter session saved');
   } catch (error) {
     console.warn('Failed to save Game Center session:', error);
   }
@@ -1315,6 +1328,12 @@ function buildGameCenterSessionFromProfile(profile = {}, { isAuthenticated = fal
 function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
   if (!isGameCenterProvider.value) return;
   const phase = String(nextStatus.phase ?? '').trim().toLowerCase();
+  if (!gameCenterBindingEnabled.value) {
+    if (phase === 'error') {
+      gameCenterStatus.value = 'error';
+    }
+    return;
+  }
   const localProfile = nextStatus.localProfile && typeof nextStatus.localProfile === 'object'
     ? nextStatus.localProfile
     : {};
@@ -1336,6 +1355,7 @@ function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
   }
 
   if (phase === 'auth_required') {
+    const resolvedStatus = gameCenterStatus.value === 'checking' ? 'checking' : 'unauthenticated';
     applyGameCenterSession({
       isAuthenticated: false,
       playerId: '',
@@ -1343,7 +1363,7 @@ function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
       alias: '',
       gameCenterId: '',
       lastAuthenticatedAt: sanitizeGameCenterTimestamp(gameCenterSession.lastAuthenticatedAt)
-    }, { status: 'unauthenticated' });
+    }, { status: resolvedStatus });
     return;
   }
 
@@ -1365,8 +1385,7 @@ async function loadGameCenterSessionCache() {
       ? parsed.data
       : parsed;
     const normalized = normalizeGameCenterSession(data);
-    const restoredStatus = normalized.isAuthenticated ? 'authenticated' : 'unauthenticated';
-    applyGameCenterSession(normalized, { status: restoredStatus, persist: false });
+    applyGameCenterSession(normalized, { status: 'checking', persist: false });
     if (normalized.isAuthenticated) {
       console.info('GameCenter session restored');
     }
@@ -1389,7 +1408,7 @@ async function ensureGameCenterAuthenticated({ source = 'unknown', interactive =
   }
 
   if (gameCenterAuthPromise) return gameCenterAuthPromise;
-  gameCenterStatus.value = 'authenticating';
+  gameCenterStatus.value = 'checking';
   gameCenterAuthPromise = (async () => {
     try {
       await matchService.signIn({
@@ -1397,6 +1416,10 @@ async function ensureGameCenterAuthenticated({ source = 'unknown', interactive =
         silent: !interactive
       });
       syncGameCenterSessionFromMatchStatus(matchmakingStatus);
+      if (source === 'app_start' && gameCenterSession.isAuthenticated) {
+        const playerId = String(gameCenterSession.playerId || gameCenterSession.gameCenterId || '').trim() || 'unknown';
+        console.info(`GameCenter auth success from app_start playerId=${playerId}`);
+      }
       if (interactive && gameCenterSession.isAuthenticated) {
         console.info('GameCenter authenticated from settings');
       }
@@ -1419,11 +1442,22 @@ async function ensureGameCenterAuthenticated({ source = 'unknown', interactive =
 
 async function connectGameCenterFromSettings() {
   console.info('GameCenter settings connect clicked');
-  await ensureGameCenterAuthenticated({ source: 'settings_connect', interactive: true });
+  // User explicitly wants to reconnect: re-enable local binding before auth.
+  setGameCenterBindingEnabled(true);
+  const session = await ensureGameCenterAuthenticated({ source: 'settings_connect', interactive: true });
+  if (session.isAuthenticated) {
+    await saveRuntimeSettings();
+  }
 }
 
 async function refreshGameCenterFromSettings() {
-  await ensureGameCenterAuthenticated({ source: 'settings_refresh', interactive: false, force: true });
+  console.info('Settings manual reconnect clicked');
+  // Manual refresh is also an explicit reconnect intent.
+  setGameCenterBindingEnabled(true);
+  const session = await ensureGameCenterAuthenticated({ source: 'settings_refresh', interactive: true, force: true });
+  if (session.isAuthenticated) {
+    await saveRuntimeSettings();
+  }
 }
 
 async function clearLocalGameCenterBinding() {
@@ -1433,6 +1467,8 @@ async function clearLocalGameCenterBinding() {
   } catch (error) {
     console.warn('Failed to clear Game Center session cache:', error);
   }
+  setGameCenterBindingEnabled(false);
+  await saveRuntimeSettings();
   applyGameCenterSession({
     isAuthenticated: false,
     playerId: '',
@@ -3174,26 +3210,21 @@ onMounted(async () => {
   await loadGameCenterSessionCache();
   await loadStudyStateForActiveAccount();
   await loadRuntimeSettings();
+  if (!gameCenterBindingEnabled.value) {
+    applyGameCenterSession({
+      isAuthenticated: false,
+      playerId: '',
+      displayName: '',
+      alias: '',
+      gameCenterId: '',
+      lastAuthenticatedAt: 0
+    }, { status: 'unauthenticated', persist: false });
+  }
   hasHydratedRuntimeSettings = true;
   const sceneId = resolveBgmSceneId(currentScreen.value);
   sfx.setBgmScene(sceneId);
   setBgmEnabled(bgmEnabled.value);
   if (bgmEnabled.value) sfx.ensureBgmRunning();
-
-  if (matchService.providerName === 'gamecenter') {
-    console.info('GameCenter auto-auth on app start');
-  }
-  matchService.init()
-    .then((capabilities) => {
-      Object.assign(matchCapabilities, capabilities ?? {});
-    })
-    .catch((error) => {
-      applyMatchStatus({
-        phase: 'error',
-        message: '配對系統初始化失敗。',
-        errorMessage: String(error?.message ?? error ?? '')
-      });
-    });
 
   unsubscribeMatchStatus = matchService.subscribe((status) => {
     applyMatchStatus(status);
@@ -3201,6 +3232,30 @@ onMounted(async () => {
   unsubscribeRealtimeEvents = matchService.subscribeRealtime((packet) => {
     handlePvpRealtimeEvent(packet);
   });
+
+  try {
+    const capabilities = await matchService.init();
+    Object.assign(matchCapabilities, capabilities ?? {});
+  } catch (error) {
+    applyMatchStatus({
+      phase: 'error',
+      message: '配對系統初始化失敗。',
+      errorMessage: String(error?.message ?? error ?? '')
+    });
+  }
+
+  if (matchService.providerName === 'gamecenter') {
+    gameCenterStatus.value = 'checking';
+    if (gameCenterBindingEnabled.value) {
+      console.info('GameCenter auto-auth start source=app_start');
+      await ensureGameCenterAuthenticated({ source: 'app_start', interactive: true, force: true });
+    } else {
+      console.info('GameCenter auto-auth skipped: local binding disabled');
+      gameCenterStatus.value = 'unauthenticated';
+    }
+  } else {
+    gameCenterStatus.value = 'authenticated';
+  }
 
   const unlockAudio = () => {
     sfx.init();
@@ -3438,30 +3493,26 @@ function startPvpBattle() {
 
 function openMatchmaking() {
   console.info('PvP page opened, checking existing GameCenter session only');
+  console.info('PvP checks existing GameCenter session');
   currentScreen.value = 'matchmaking';
-  void ensureGameCenterAuthenticated({ source: 'pvp_page_open', interactive: false }).then(() => {
-    if (!isGameCenterProvider.value) return;
-    if (gameCenterSession.isAuthenticated) return;
-    if (currentScreen.value !== 'matchmaking') return;
-    if (matchmakingStatus.phase === 'searching' || matchmakingStatus.phase === 'matched') return;
-    applyMatchStatus({
-      ...matchmakingStatus,
-      phase: 'auth_required',
-      message: '請先到主畫面設定頁面連接 Game Center。',
-      errorMessage: ''
-    });
+  if (!isGameCenterProvider.value) return;
+  if (gameCenterSession.isAuthenticated) return;
+  if (matchmakingStatus.phase === 'searching' || matchmakingStatus.phase === 'matched') return;
+  applyMatchStatus({
+    ...matchmakingStatus,
+    phase: 'auth_required',
+    message: '請先到主畫面設定頁面連接 Game Center。',
+    errorMessage: ''
   });
 }
 
 function goSettingsFromMatchmaking() {
+  console.info(`Settings reads GameCenter session status=${gameCenterStatus.value}`);
   currentScreen.value = 'settings';
 }
 
 async function startPvPMatchmaking() {
   console.info('PvP start matchmaking clicked');
-  if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
-    await ensureGameCenterAuthenticated({ source: 'pvp_start_guard', interactive: false });
-  }
   if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
     console.info('PvP blocked: Game Center not authenticated');
     applyMatchStatus({
@@ -3473,6 +3524,7 @@ async function startPvPMatchmaking() {
     return;
   }
   resetPvpRealtimeState();
+  console.info('startMatchmaking only after PvP button clicked');
   await matchService.startMatchmaking({
     displayName: resolveLocalPvpDisplayName(),
     characterId: playerConfig.characterId,
@@ -3580,6 +3632,7 @@ function openStudy() {
 }
 
 function openSettings() {
+  console.info(`Settings reads GameCenter session status=${gameCenterStatus.value}`);
   currentScreen.value = 'settings';
 }
 

@@ -3,7 +3,7 @@
     <header class="settings-header">
       <button type="button" class="study-back-btn pixel-border" @click="$emit('back-home')">返回</button>
       <h2 class="settings-title">設定</h2>
-      <div class="settings-account">{{ gameCenterHeaderLabel }}</div>
+      <div aria-hidden="true"></div>
     </header>
 
     <article class="settings-card pixel-border">
@@ -99,7 +99,7 @@ const props = defineProps({
   sfxEnabled: { type: Boolean, required: true },
   bgmEnabled: { type: Boolean, required: true },
   vibrationEnabled: { type: Boolean, required: true },
-  gameCenterStatus: { type: String, default: 'unknown' },
+  gameCenterStatus: { type: String, default: 'checking' },
   pvpNickname: { type: String, default: '' },
   gameCenterSession: {
     type: Object,
@@ -141,24 +141,13 @@ function emitSfxVolumeChange(event) {
 
 const normalizedGameCenterStatus = computed(() => {
   const text = String(props.gameCenterStatus || '').trim().toLowerCase();
-  if (['unknown', 'authenticating', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
-  return 'unknown';
-});
-
-const gameCenterHeaderLabel = computed(() => {
-  const name = String(props.gameCenterSession?.displayName || props.gameCenterSession?.alias || '').trim();
-  if (normalizedGameCenterStatus.value === 'authenticated' && name) {
-    return `GC：${name}`;
-  }
-  if (normalizedGameCenterStatus.value === 'authenticated') return 'GC：已連接';
-  if (normalizedGameCenterStatus.value === 'authenticating') return 'GC：檢查中';
-  if (normalizedGameCenterStatus.value === 'error') return 'GC：異常';
-  return 'GC：未連接';
+  if (['checking', 'authenticated', 'unauthenticated', 'error'].includes(text)) return text;
+  return 'checking';
 });
 
 const gameCenterStatusLabel = computed(() => {
   if (normalizedGameCenterStatus.value === 'authenticated') return '已連接';
-  if (normalizedGameCenterStatus.value === 'authenticating') return '檢查中';
+  if (normalizedGameCenterStatus.value === 'checking') return '檢查中';
   if (normalizedGameCenterStatus.value === 'error') return '連線異常';
   if (normalizedGameCenterStatus.value === 'unauthenticated') return '未連接';
   return '未檢查';

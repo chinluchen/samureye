@@ -626,6 +626,7 @@ button {
   background: rgba(187, 247, 208, 0.82);
 }
 
+.settings-gamecenter-status.state-checking,
 .settings-gamecenter-status.state-authenticating {
   color: #1e3a8a;
   background: rgba(191, 219, 254, 0.82);
@@ -842,6 +843,7 @@ button {
   background: rgba(187, 247, 208, 0.82);
 }
 
+.matchmaking-gc-state.state-checking,
 .matchmaking-gc-state.state-authenticating {
   color: #1e3a8a;
   background: rgba(191, 219, 254, 0.82);
@@ -1060,6 +1062,24 @@ button {
   justify-content: center;
   font-size: 0.92rem;
   font-weight: 900;
+}
+
+.screen-bottom-status {
+  margin-top: auto;
+  align-self: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.screen-bottom-status-study {
+  min-width: 96px;
 }
 
 .study-layout {
@@ -2139,6 +2159,7 @@ button {
 .result-card,
 .settings-account,
 .study-points,
+.screen-bottom-status,
 .matchmaking-avatar {
   position: relative;
   border-color: var(--glass-border-ink);
