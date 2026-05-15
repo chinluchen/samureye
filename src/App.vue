@@ -40,7 +40,7 @@
     <template v-else-if="currentScreen === 'battle'">
       <div id="game-world-wrapper">
         <button
-          v-if="gameState !== 'gameResult'"
+          v-if="shouldShowBattleMenuTrigger"
           type="button"
           class="battle-menu-trigger pixel-border"
           @click="openBattleMenu"
@@ -99,10 +99,10 @@
       </div>
 
       <ResultLayer
-        v-if="gameState === 'gameResult'"
+        v-if="shouldRenderBattleResultLayer"
         :player-hp="playerHp"
         :opponent-hp="opponentHp"
-        :outcome="currentBattleOutcome"
+        :outcome="currentPvpResultOutcome"
         :is-pvp="isCurrentBattlePvP"
         @play-again="initGame"
         @open-stage-select="goStageSelectFromResult"
@@ -238,6 +238,13 @@ import { sfx } from './services/SoundEngine.js';
 import { triggerHaptic } from './services/hapticsService.js';
 import { createMatchService } from './services/match/MatchService.js';
 import { appStorage } from './services/storage/preferencesStorage.js';
+import {
+  authenticateFirebaseAnonymous,
+  getFirebasePlayerProgress,
+  isFirebaseBridgeAvailable,
+  saveFirebasePlayerProgress,
+  upsertFirebaseUser
+} from './services/firebase/playerProgressService.js';
 import CutsceneLayer from './components/CutsceneLayer.vue';
 import GameTarget from './components/GameTarget.vue';
 import HudLayer from './components/HudLayer.vue';
@@ -270,6 +277,10 @@ const matchmakingStatus = reactive({
   phase: 'idle',
   message: '配對系統初始化中...',
   queueSeconds: 0,
+  expectedPlayerCount: 0,
+  connectedPlayerCount: 0,
+  matchSessionId: '',
+  matchedEnteredAtMs: 0,
   localProfile: {
     id: '',
     gameCenterId: '',
@@ -314,6 +325,23 @@ const activeSkillAnimation = ref(null);
 const PVP_READY_COUNTDOWN_MS = 3200;
 const PVP_START_GUARD_MS = 350;
 const PVP_FOG_TRANSITION_MS = 1800;
+const PVP_FALLBACK_COUNTDOWN_MS = PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS;
+const PVP_MIN_ACCEPTABLE_REMAINING_MS = 3000;
+const PVP_MAX_ACCEPTABLE_REMAINING_MS = 12000;
+const PVP_SESSION_SCOPED_MESSAGE_TYPES = new Set([
+  'profile_sync',
+  'ready',
+  'prepare_battle',
+  'prepare_ack',
+  'battle_go',
+  'start_battle',
+  'battle_start',
+  'skill_cast_request',
+  'skill_cast',
+  'damage',
+  'forfeit',
+  'battle_end'
+]);
 const rootCountdownOverlayRef = ref(null);
 const countdownNowMs = ref(Date.now());
 let rootCountdownTimer = null;
@@ -327,6 +355,25 @@ const rootFogTimeline = reactive({
   buildEndMs: 1300,
   holdEndMs: PVP_FOG_TRANSITION_MS
 });
+let pendingGuestSessionSyncRequestTimer = null;
+const pendingSessionScopedPackets = [];
+let pendingPrepareBattleState = null;
+const pvpTerminal = ref(false);
+const pvpBattleEnded = ref(false);
+const PVP_END_FOG_DURATION_MS = 1300;
+const pvpEndUiState = reactive({
+  phase: 'idle',
+  reason: '',
+  matchSessionId: '',
+  result: null,
+  startedAtMs: 0,
+  completedAtMs: 0
+});
+let pendingPvpEndFogCompleteTimer = null;
+const endedMatchSessionId = ref('');
+const endedMatchSessionAtMs = ref(0);
+const recentEndedMatchSessionIds = new Map();
+const RECENT_ENDED_SESSION_TTL_MS = 120000;
 
 function playSkillAudioByKey(audioKey = '', { isHeal = false, damage = 0, healAmount = 0 } = {}) {
   const key = String(audioKey || '').trim();
@@ -426,6 +473,7 @@ const LEGACY_STORAGE_KEYS = [STUDY_SAVE_KEY, LEGACY_ACCOUNT_SAVE_KEY, SETTINGS_S
 const STUDY_PROFILE_SCHEMA_VERSION = 4;
 const SETTINGS_SCHEMA_VERSION = 1;
 const GAME_CENTER_SESSION_SCHEMA_VERSION = 1;
+const FIREBASE_PROGRESS_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
@@ -433,7 +481,13 @@ const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
 let hasHydratedGameCenterSession = false;
+let hasHydratedRemotePlayerProgress = false;
 let gameCenterAuthPromise = null;
+let isApplyingRemotePlayerProgress = false;
+let remotePlayerProgressSaveTimer = null;
+let remotePlayerProgressSaveInFlight = false;
+let remotePlayerProgressDirty = false;
+let remotePlayerProgressPendingReason = '';
 const GAME_CENTER_STATUS_SET = ['checking', 'authenticated', 'unauthenticated', 'error'];
 const gameCenterStatus = ref('checking');
 const gameCenterBindingEnabled = ref(true);
@@ -443,6 +497,12 @@ const gameCenterSession = reactive({
   displayName: '',
   alias: '',
   gameCenterId: '',
+  lastAuthenticatedAt: 0
+});
+const firebaseSession = reactive({
+  uid: '',
+  isAuthenticated: false,
+  isAnonymous: false,
   lastAuthenticatedAt: 0
 });
 const pvpNickname = ref('');
@@ -542,7 +602,6 @@ const {
   finishSkillCinematic,
   applyOpponentDamage,
   applyRemoteDamage,
-  forceOpponentDefeat,
   setReticleOffset,
   clearReticleOffset
 } = game;
@@ -592,6 +651,9 @@ const selectedCharacter = computed(() => {
 });
 const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
+const isPvpEndingFogPhase = computed(() => pvpEndUiState.phase === 'ending_fog');
+const isPvpResultLockedPhase = computed(() => pvpEndUiState.phase === 'result');
+const isPvpResultOrEndingPhase = computed(() => isPvpEndingFogPhase.value || isPvpResultLockedPhase.value);
 const isRootCountdownOverlayVisible = computed(() => {
   return currentScreen.value === 'matchmaking'
     && matchmakingStatus.phase === 'matched'
@@ -620,6 +682,30 @@ const currentBattleOutcome = computed(() => {
   if (playerHp.value > opponentHp.value) return 'win';
   if (playerHp.value < opponentHp.value) return 'lose';
   return isCurrentBattlePvP.value ? 'draw' : 'lose';
+});
+const currentPvpResultOutcome = computed(() => {
+  if (
+    currentScreen.value === 'battle'
+    && isCurrentBattlePvP.value
+    && isPvpResultLockedPhase.value
+  ) {
+    const lockedOutcome = String(pvpEndUiState.result?.localOutcome ?? '').trim().toLowerCase();
+    if (lockedOutcome === 'win' || lockedOutcome === 'lose' || lockedOutcome === 'draw') {
+      return lockedOutcome;
+    }
+  }
+  return currentBattleOutcome.value;
+});
+const shouldRenderBattleResultLayer = computed(() => {
+  if (currentScreen.value !== 'battle') return false;
+  if (!isCurrentBattlePvP.value) return gameState.value === 'gameResult';
+  return gameState.value === 'gameResult' || isPvpResultLockedPhase.value;
+});
+const shouldShowBattleMenuTrigger = computed(() => {
+  if (currentScreen.value !== 'battle') return false;
+  if (gameState.value === 'gameResult') return false;
+  if (isCurrentBattlePvP.value && isPvpResultOrEndingPhase.value) return false;
+  return true;
 });
 const isTutorialUntimed = computed(() => isTutorialStage.value);
 const tutorialHitProgress = computed(() => {
@@ -1200,6 +1286,260 @@ async function saveStudyStateForActiveAccount() {
   await saveAllStudyProfiles(allProfiles);
 }
 
+function normalizeSkillIdList(rawIds = []) {
+  if (!Array.isArray(rawIds)) return [];
+  const ids = rawIds
+    .map(id => String(id ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function normalizeRemoteProgressPayload(rawProgress = {}) {
+  const data = rawProgress && typeof rawProgress === 'object' ? rawProgress : {};
+  const stats = data.stats && typeof data.stats === 'object' ? data.stats : {};
+  const stage = data.stageProgress && typeof data.stageProgress === 'object' ? data.stageProgress : {};
+  const questions = data.questionProgress && typeof data.questionProgress === 'object' ? data.questionProgress : {};
+  const tracksFromQuestion = questions.tracks && typeof questions.tracks === 'object' ? questions.tracks : {};
+  const tracksFromStats = stats.trackLevels && typeof stats.trackLevels === 'object' ? stats.trackLevels : {};
+  const trackSource = Object.keys(tracksFromQuestion).length > 0 ? tracksFromQuestion : tracksFromStats;
+  const normalizedCharacter = characters.find(item => item.id === stats.characterId)?.id ?? playerConfig.characterId;
+  const normalizedLevel = Math.max(0, Math.floor(sanitizeNumber(data.level, 0)));
+  const normalizedSp = Math.max(0, Math.floor(sanitizeNumber(data.sp, 0)));
+  const normalizedAnswered = Math.max(0, Math.floor(sanitizeNumber(questions.answered, stats.answered ?? 0)));
+  const normalizedCorrect = Math.max(0, Math.floor(sanitizeNumber(questions.correct, stats.correct ?? 0)));
+
+  return {
+    level: normalizedLevel,
+    sp: normalizedSp,
+    learnedSkills: normalizeSkillIdList(data.learnedSkills),
+    equippedSkills: buildFilledSkillIds(normalizeSkillIdList(data.equippedSkills)),
+    stats: {
+      ...stats,
+      characterId: normalizedCharacter
+    },
+    stageProgress: {
+      clearedStageIds: Array.isArray(stage.clearedStageIds)
+        ? [...new Set(stage.clearedStageIds.map(id => String(id ?? '').trim()).filter(Boolean))]
+        : []
+    },
+    questionProgress: {
+      answered: normalizedAnswered,
+      correct: normalizedCorrect,
+      tracks: {
+        optometry: normalizeTrack(trackSource.optometry),
+        optics: normalizeTrack(trackSource.optics),
+        contactLens: normalizeTrack(trackSource.contactLens),
+        other: normalizeTrack(trackSource.other)
+      }
+    },
+    schemaVersion: Math.max(1, Math.floor(sanitizeNumber(data.schemaVersion, FIREBASE_PROGRESS_SCHEMA_VERSION)))
+  };
+}
+
+function buildRemoteProgressPayloadFromLocalState() {
+  const normalized = normalizeStudyData(snapshotStudyData());
+  const trackLevels = normalized.tracks;
+  const summedLevel = Object.values(trackLevels)
+    .reduce((sum, track) => sum + Math.max(0, Math.floor(sanitizeNumber(track.level, 0))), 0);
+  const learnedSkills = normalizeSkillIdList(normalized.playerConfig.equippedSkillIds);
+  return {
+    level: summedLevel,
+    sp: Math.max(0, Math.floor(sanitizeNumber(normalized.knowledgePoints, 0))),
+    learnedSkills,
+    equippedSkills: buildFilledSkillIds(normalized.playerConfig.equippedSkillIds),
+    stats: {
+      characterId: normalized.playerConfig.characterId,
+      trackLevels,
+      answered: normalized.answered,
+      correct: normalized.correct
+    },
+    stageProgress: {
+      clearedStageIds: normalized.stageProgress.clearedStageIds
+    },
+    questionProgress: {
+      answered: normalized.answered,
+      correct: normalized.correct,
+      tracks: trackLevels
+    },
+    schemaVersion: FIREBASE_PROGRESS_SCHEMA_VERSION
+  };
+}
+
+function buildDefaultRemoteProgressPayload() {
+  const defaults = normalizeStudyData(buildDefaultStudyData());
+  const trackLevels = defaults.tracks;
+  return {
+    level: 0,
+    sp: 0,
+    learnedSkills: [],
+    equippedSkills: buildFilledSkillIds(defaults.playerConfig.equippedSkillIds),
+    stats: {
+      characterId: defaults.playerConfig.characterId,
+      trackLevels,
+      answered: 0,
+      correct: 0
+    },
+    stageProgress: {
+      clearedStageIds: []
+    },
+    questionProgress: {
+      answered: 0,
+      correct: 0,
+      tracks: trackLevels
+    },
+    schemaVersion: FIREBASE_PROGRESS_SCHEMA_VERSION
+  };
+}
+
+function buildStudyDataFromRemoteProgress(rawProgress = {}) {
+  const progress = normalizeRemoteProgressPayload(rawProgress);
+  return normalizeStudyData({
+    knowledgePoints: progress.sp,
+    answered: progress.questionProgress.answered,
+    correct: progress.questionProgress.correct,
+    tracks: progress.questionProgress.tracks,
+    playerConfig: {
+      characterId: progress.stats.characterId ?? playerConfig.characterId,
+      equippedSkillIds: progress.equippedSkills
+    },
+    stageProgress: {
+      clearedStageIds: progress.stageProgress.clearedStageIds
+    }
+  });
+}
+
+function resolveGameCenterIdentityForUserDocument() {
+  return {
+    gameCenterPlayerId: String(gameCenterSession.playerId || gameCenterSession.gameCenterId || '').trim(),
+    displayName: String(gameCenterSession.displayName || gameCenterSession.alias || '').trim(),
+    alias: String(gameCenterSession.alias || gameCenterSession.displayName || '').trim()
+  };
+}
+
+function clearRemotePlayerProgressSaveTimer() {
+  if (!remotePlayerProgressSaveTimer) return;
+  clearTimeout(remotePlayerProgressSaveTimer);
+  remotePlayerProgressSaveTimer = null;
+}
+
+async function flushRemotePlayerProgressSave(reason = 'unknown') {
+  if (!hasHydratedRemotePlayerProgress) return;
+  if (!firebaseSession.uid) return;
+  if (isApplyingRemotePlayerProgress) return;
+
+  if (remotePlayerProgressSaveInFlight) {
+    remotePlayerProgressDirty = true;
+    if (reason) remotePlayerProgressPendingReason = reason;
+    return;
+  }
+
+  remotePlayerProgressSaveInFlight = true;
+  const payload = buildRemoteProgressPayloadFromLocalState();
+  const flushReason = String(reason || remotePlayerProgressPendingReason || 'unknown').trim() || 'unknown';
+  remotePlayerProgressPendingReason = '';
+
+  try {
+    await saveFirebasePlayerProgress(firebaseSession.uid, payload);
+    remotePlayerProgressDirty = false;
+    console.info(`[FirebaseSync] progress saved reason=${flushReason}`);
+  } catch (error) {
+    remotePlayerProgressDirty = true;
+    console.warn(`[FirebaseSync] progress save failed reason=${flushReason}:`, error);
+  } finally {
+    remotePlayerProgressSaveInFlight = false;
+    if (remotePlayerProgressDirty) {
+      queueRemotePlayerProgressSave('retry_after_failure');
+    }
+  }
+}
+
+function queueRemotePlayerProgressSave(reason = 'unknown') {
+  if (!hasHydratedRemotePlayerProgress) return;
+  if (!firebaseSession.uid) return;
+  if (isApplyingRemotePlayerProgress) return;
+
+  remotePlayerProgressDirty = true;
+  remotePlayerProgressPendingReason = String(reason || '').trim() || remotePlayerProgressPendingReason;
+  clearRemotePlayerProgressSaveTimer();
+  remotePlayerProgressSaveTimer = setTimeout(() => {
+    remotePlayerProgressSaveTimer = null;
+    void flushRemotePlayerProgressSave(remotePlayerProgressPendingReason || reason);
+  }, 900);
+}
+
+async function runGameCenterAutoAuthForStartup() {
+  if (matchService.providerName === 'gamecenter') {
+    gameCenterStatus.value = 'checking';
+    if (gameCenterBindingEnabled.value) {
+      console.info('GameCenter auto-auth start source=app_start');
+      await ensureGameCenterAuthenticated({ source: 'app_start', interactive: true, force: true });
+    } else {
+      console.info('GameCenter auto-auth skipped: local binding disabled');
+      gameCenterStatus.value = 'unauthenticated';
+    }
+    return;
+  }
+  gameCenterStatus.value = 'authenticated';
+}
+
+async function bootstrapRemotePlayerProgressSync() {
+  if (!isFirebaseBridgeAvailable()) {
+    console.warn('[FirebaseSync] FirebaseBridge unavailable. Using Preferences cache only.');
+    hasHydratedRemotePlayerProgress = false;
+    await runGameCenterAutoAuthForStartup();
+    return;
+  }
+
+  try {
+    const authPayload = await authenticateFirebaseAnonymous();
+    if (!authPayload?.uid) {
+      throw new Error('Firebase 匿名登入成功但沒有 uid。');
+    }
+
+    firebaseSession.uid = String(authPayload.uid).trim();
+    firebaseSession.isAuthenticated = Boolean(authPayload.isAuthenticated);
+    firebaseSession.isAnonymous = Boolean(authPayload.isAnonymous);
+    firebaseSession.lastAuthenticatedAt = Date.now();
+
+    console.info(`✅ Firebase anonymous uid: ${firebaseSession.uid}`);
+
+    await runGameCenterAutoAuthForStartup();
+
+    const identity = resolveGameCenterIdentityForUserDocument();
+    await upsertFirebaseUser({
+      uid: firebaseSession.uid,
+      gameCenterPlayerId: identity.gameCenterPlayerId,
+      displayName: identity.displayName,
+      alias: identity.alias
+    });
+
+    const progressResult = await getFirebasePlayerProgress(firebaseSession.uid);
+    let progressPayload = null;
+    if (progressResult.exists && progressResult.data) {
+      progressPayload = normalizeRemoteProgressPayload(progressResult.data);
+      console.info('[FirebaseSync] loaded existing player progress.');
+    } else {
+      progressPayload = buildDefaultRemoteProgressPayload();
+      await saveFirebasePlayerProgress(firebaseSession.uid, progressPayload);
+      console.info('[FirebaseSync] created default player progress.');
+    }
+
+    isApplyingRemotePlayerProgress = true;
+    applyStudyData(buildStudyDataFromRemoteProgress(progressPayload));
+    await saveStudyStateForActiveAccount();
+    isApplyingRemotePlayerProgress = false;
+
+    hasHydratedRemotePlayerProgress = true;
+    remotePlayerProgressDirty = false;
+    remotePlayerProgressPendingReason = '';
+    console.info('[FirebaseSync] player progress hydrated from Firestore.');
+  } catch (error) {
+    isApplyingRemotePlayerProgress = false;
+    hasHydratedRemotePlayerProgress = false;
+    console.warn('[FirebaseSync] bootstrap failed. Keeping local cache as fallback:', error);
+  }
+}
+
 function resolveLocalPvpDisplayName() {
   const nickname = sanitizePvpNickname(pvpNickname.value);
   if (nickname) return nickname;
@@ -1231,13 +1571,16 @@ function applyOpponentPvpDisplayNameToMatchStatus() {
 }
 
 async function broadcastLocalPvpProfileSync(reason = 'unknown') {
-  if (matchmakingStatus.phase !== 'matched' && matchmakingStatus.phase !== 'searching') return;
+  if (matchmakingStatus.phase !== 'matched') return;
+  const matchSessionId = getCurrentPvpMatchSessionId();
+  if (!matchSessionId) return;
   const displayName = resolveLocalPvpDisplayName();
   const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
   if (!displayName || !localPlayerId) return;
   await sendPvpRealtimeEvent('profile_sync', {
     displayName,
     playerId: localPlayerId,
+    matchSessionId,
     reason: String(reason || '').trim()
   });
 }
@@ -1328,6 +1671,10 @@ function buildGameCenterSessionFromProfile(profile = {}, { isAuthenticated = fal
 function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
   if (!isGameCenterProvider.value) return;
   const phase = String(nextStatus.phase ?? '').trim().toLowerCase();
+  const hasExistingIdentity = Boolean(
+    String(gameCenterSession.playerId || gameCenterSession.gameCenterId || '').trim()
+  );
+  const isAuthResolving = gameCenterStatus.value === 'checking' || Boolean(gameCenterAuthPromise);
   if (!gameCenterBindingEnabled.value) {
     if (phase === 'error') {
       gameCenterStatus.value = 'error';
@@ -1355,6 +1702,13 @@ function syncGameCenterSessionFromMatchStatus(nextStatus = {}) {
   }
 
   if (phase === 'auth_required') {
+    if (isAuthResolving) {
+      gameCenterStatus.value = 'checking';
+      if (hasExistingIdentity) {
+        console.info('[GameCenter] getLocalPlayer returned unauthenticated during checking; keep existing session until authenticate resolves.');
+      }
+      return;
+    }
     const resolvedStatus = gameCenterStatus.value === 'checking' ? 'checking' : 'unauthenticated';
     applyGameCenterSession({
       isAuthenticated: false,
@@ -1446,6 +1800,19 @@ async function connectGameCenterFromSettings() {
   setGameCenterBindingEnabled(true);
   const session = await ensureGameCenterAuthenticated({ source: 'settings_connect', interactive: true });
   if (session.isAuthenticated) {
+    if (firebaseSession.uid && isFirebaseBridgeAvailable()) {
+      const identity = resolveGameCenterIdentityForUserDocument();
+      try {
+        await upsertFirebaseUser({
+          uid: firebaseSession.uid,
+          gameCenterPlayerId: identity.gameCenterPlayerId,
+          displayName: identity.displayName,
+          alias: identity.alias
+        });
+      } catch (error) {
+        console.warn('[FirebaseSync] failed to update users/{uid} from settings_connect:', error);
+      }
+    }
     await saveRuntimeSettings();
   }
 }
@@ -1456,6 +1823,19 @@ async function refreshGameCenterFromSettings() {
   setGameCenterBindingEnabled(true);
   const session = await ensureGameCenterAuthenticated({ source: 'settings_refresh', interactive: true, force: true });
   if (session.isAuthenticated) {
+    if (firebaseSession.uid && isFirebaseBridgeAvailable()) {
+      const identity = resolveGameCenterIdentityForUserDocument();
+      try {
+        await upsertFirebaseUser({
+          uid: firebaseSession.uid,
+          gameCenterPlayerId: identity.gameCenterPlayerId,
+          displayName: identity.displayName,
+          alias: identity.alias
+        });
+      } catch (error) {
+        console.warn('[FirebaseSync] failed to update users/{uid} from settings_refresh:', error);
+      }
+    }
     await saveRuntimeSettings();
   }
 }
@@ -1487,6 +1867,16 @@ function applyMatchStatus(nextStatus = {}) {
   matchmakingStatus.queueSeconds = Number.isFinite(Number(nextStatus.queueSeconds))
     ? Number(nextStatus.queueSeconds)
     : 0;
+  matchmakingStatus.expectedPlayerCount = normalizeConnectedPlayerCount(
+    Number.isFinite(Number(nextStatus.expectedPlayerCount))
+      ? Number(nextStatus.expectedPlayerCount)
+      : matchmakingStatus.expectedPlayerCount
+  );
+  matchmakingStatus.connectedPlayerCount = normalizeConnectedPlayerCount(
+    Number.isFinite(Number(nextStatus.connectedPlayerCount))
+      ? Number(nextStatus.connectedPlayerCount)
+      : matchmakingStatus.connectedPlayerCount
+  );
   matchmakingStatus.localProfile = {
     ...matchmakingStatus.localProfile,
     ...(nextStatus.localProfile ?? {})
@@ -1497,13 +1887,52 @@ function applyMatchStatus(nextStatus = {}) {
   applyOpponentPvpDisplayNameToMatchStatus();
 
   const nextPhase = matchmakingStatus.phase;
+  if (
+    isCurrentBattlePvP.value
+    && currentScreen.value === 'battle'
+    && !isPvpTerminalState()
+    && prevPhase === 'matched'
+    && nextPhase !== 'matched'
+  ) {
+    beginPvpEndSequence(`match_phase_${nextPhase || 'unknown'}`, {
+      phase: 'ended',
+      localOutcome: 'win',
+      message: '對戰連線中斷，已結束本場對戰。'
+    });
+  }
   if (nextPhase === 'matched' && prevPhase !== 'matched') {
+    matchmakingStatus.matchedEnteredAtMs = Date.now();
     resetPvpRealtimeState();
     applyLocalPvpDisplayNameToMatchStatus();
     applyOpponentPvpDisplayNameToMatchStatus();
+    ensurePvpMatchSessionForMatchedState('matched_enter');
     void broadcastLocalPvpProfileSync('matched_enter');
   }
+  if (nextPhase === 'matched') {
+    ensurePvpMatchSessionForMatchedState('matched_status_update');
+    if (!hasActiveMatchedOpponent()) {
+      if (matchmakingStatus.localReady || matchmakingStatus.opponentReady || matchmakingStatus.startPending) {
+        console.info('[PvP Sync] matched 狀態失去有效對手連線，重置ready/session流程');
+      }
+      resetPvpReadyState();
+      if (currentScreen.value === 'matchmaking') {
+        clearCurrentPvpMatchSessionId('matched_without_active_opponent');
+        matchmakingStatus.phase = 'idle';
+        matchmakingStatus.message = '對手已離線，請重新配對。';
+        matchmakingStatus.errorMessage = '';
+        matchmakingStatus.opponentProfile = null;
+        matchmakingStatus.queueSeconds = 0;
+        matchmakingStatus.expectedPlayerCount = 0;
+        matchmakingStatus.connectedPlayerCount = 0;
+        console.info('[PvP End] phase set to idle');
+      }
+    }
+  }
   if (nextPhase !== 'matched') {
+    matchmakingStatus.matchedEnteredAtMs = 0;
+    matchmakingStatus.expectedPlayerCount = 0;
+    matchmakingStatus.connectedPlayerCount = 0;
+    clearCurrentPvpMatchSessionId(`phase_${nextPhase || 'unknown'}`);
     resetPvpReadyState();
   } else {
     refreshPvpReadyMessage();
@@ -1545,6 +1974,37 @@ function clearPendingPvpStartTimer() {
   }
 }
 
+function clearPendingPvpEndFogTimer() {
+  if (!pendingPvpEndFogCompleteTimer) return;
+  clearTimeout(pendingPvpEndFogCompleteTimer);
+  pendingPvpEndFogCompleteTimer = null;
+}
+
+function clearPvpEndUiState(reason = 'reset') {
+  clearPendingPvpEndFogTimer();
+  if (pvpEndUiState.phase !== 'idle') {
+    console.info(`[PvP End] clear end sequence state reason=${reason}`);
+  }
+  pvpEndUiState.phase = 'idle';
+  pvpEndUiState.reason = '';
+  pvpEndUiState.matchSessionId = '';
+  pvpEndUiState.result = null;
+  pvpEndUiState.startedAtMs = 0;
+  pvpEndUiState.completedAtMs = 0;
+}
+
+function normalizePvpLocalOutcome(value = '') {
+  const outcome = String(value ?? '').trim().toLowerCase();
+  if (outcome === 'win' || outcome === 'lose' || outcome === 'draw') return outcome;
+  return '';
+}
+
+function clearPendingGuestSessionSyncRequestTimer() {
+  if (!pendingGuestSessionSyncRequestTimer) return;
+  clearTimeout(pendingGuestSessionSyncRequestTimer);
+  pendingGuestSessionSyncRequestTimer = null;
+}
+
 function resolveMatchPlayerId(profile = null) {
   if (!profile || typeof profile !== 'object') return '';
   const gamePlayerId = String(profile.id ?? '').trim();
@@ -1561,6 +2021,389 @@ function isCurrentPlayerMatchHost() {
 
 function generatePvpBattleSeed() {
   return `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function normalizeConnectedPlayerCount(value = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next < 0) return 0;
+  return Math.floor(next);
+}
+
+function getCurrentPvpMatchSessionId() {
+  return String(matchmakingStatus.matchSessionId ?? '').trim();
+}
+
+function setCurrentPvpMatchSessionId(sessionId = '', reason = '') {
+  const next = String(sessionId || '').trim();
+  const prev = getCurrentPvpMatchSessionId();
+  matchmakingStatus.matchSessionId = next;
+  if (next) {
+    if (endedMatchSessionId.value && endedMatchSessionId.value !== next) {
+      clearActiveEndedMatchSession('new_active_session');
+    }
+    console.info(`[PvP Sync] current matchSessionId=${next}${reason ? ` reason=${reason}` : ''}`);
+    clearPendingGuestSessionSyncRequestTimer();
+    if (!prev || prev !== next) {
+      drainPendingSessionScopedPackets(next, reason || 'set_session_id');
+    }
+  }
+}
+
+function clearCurrentPvpMatchSessionId(reason = '') {
+  const prev = getCurrentPvpMatchSessionId();
+  pendingSessionScopedPackets.length = 0;
+  clearPendingGuestSessionSyncRequestTimer();
+  if (!prev) return;
+  matchmakingStatus.matchSessionId = '';
+  console.info(`[PvP Sync] clear matchSessionId=${prev}${reason ? ` reason=${reason}` : ''}`);
+}
+
+function pruneRecentEndedMatchSessions(nowMs = Date.now()) {
+  for (const [sessionId, endedAtMs] of recentEndedMatchSessionIds.entries()) {
+    if (!sessionId) {
+      recentEndedMatchSessionIds.delete(sessionId);
+      continue;
+    }
+    if (!Number.isFinite(Number(endedAtMs))) {
+      recentEndedMatchSessionIds.delete(sessionId);
+      continue;
+    }
+    if (nowMs - Number(endedAtMs) > RECENT_ENDED_SESSION_TTL_MS) {
+      recentEndedMatchSessionIds.delete(sessionId);
+    }
+  }
+}
+
+function isRecentlyEndedMatchSession(sessionId = '') {
+  const normalized = String(sessionId || '').trim();
+  if (!normalized) return false;
+  pruneRecentEndedMatchSessions(Date.now());
+  if (endedMatchSessionId.value && endedMatchSessionId.value === normalized) return true;
+  return recentEndedMatchSessionIds.has(normalized);
+}
+
+function markEndedMatchSession(sessionId = '', reason = '') {
+  const normalized = String(sessionId || '').trim();
+  if (!normalized) return;
+  const nowMs = Date.now();
+  endedMatchSessionId.value = normalized;
+  endedMatchSessionAtMs.value = nowMs;
+  recentEndedMatchSessionIds.set(normalized, nowMs);
+  pruneRecentEndedMatchSessions(nowMs);
+  console.info(`[PvP End] endedMatchSessionId set=${normalized}${reason ? ` reason=${reason}` : ''}`);
+}
+
+function clearActiveEndedMatchSession(reason = '') {
+  const prev = String(endedMatchSessionId.value || '').trim();
+  if (!prev) return;
+  endedMatchSessionId.value = '';
+  endedMatchSessionAtMs.value = 0;
+  console.info(`[PvP End] clear endedMatchSessionId=${prev}${reason ? ` reason=${reason}` : ''}`);
+}
+
+function generatePvpMatchSessionId() {
+  const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile) || 'local';
+  const opponentPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile) || 'opponent';
+  const sortedPair = [localPlayerId, opponentPlayerId].sort((a, b) => a.localeCompare(b)).join('::');
+  return `${sortedPair}::${Date.now()}::${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function isPacketFromCurrentMatchedOpponent(packet = {}) {
+  const sourcePlayerId = String(packet?._sourcePlayerId ?? '').trim();
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  if (!sourcePlayerId || !opponentId) return false;
+  return sourcePlayerId === opponentId;
+}
+
+function canAcceptInitialSessionSync(packet = {}) {
+  if (getCurrentPvpMatchSessionId()) return false;
+  const phase = String(matchmakingStatus.phase ?? '').trim();
+  if (phase !== 'matched' && phase !== 'searching') return false;
+  return isPacketFromCurrentMatchedOpponent(packet);
+}
+
+function queuePendingSessionScopedPacket(type, packet = {}) {
+  const incomingSessionId = resolvePacketMatchSessionId(packet);
+  if (!incomingSessionId) return;
+  const sourcePlayerId = String(packet?._sourcePlayerId ?? '').trim();
+  const hasSamePacket = pendingSessionScopedPackets.some((item) => (
+    item.type === type
+    && item.matchSessionId === incomingSessionId
+    && item.sourcePlayerId === sourcePlayerId
+  ));
+  if (hasSamePacket) return;
+  pendingSessionScopedPackets.push({
+    type,
+    matchSessionId: incomingSessionId,
+    sourcePlayerId,
+    packet
+  });
+  console.info(`[PvP Sync] queued ${type} while waiting matchSessionId=${incomingSessionId}`);
+}
+
+function drainPendingSessionScopedPackets(sessionId = '', reason = '') {
+  const nextSessionId = String(sessionId || '').trim();
+  if (!nextSessionId) return;
+  if (pendingSessionScopedPackets.length === 0) return;
+
+  const remaining = [];
+  for (const item of pendingSessionScopedPackets) {
+    if (item.matchSessionId !== nextSessionId) {
+      remaining.push(item);
+      continue;
+    }
+    if (item.type === 'profile_sync') {
+      const sourcePlayerId = String(item?.packet?._sourcePlayerId ?? item?.packet?.payload?.playerId ?? '').trim();
+      const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+      if (!sourcePlayerId || sourcePlayerId === localPlayerId) continue;
+      const customName = sanitizePvpNickname(item?.packet?.payload?.displayName, '');
+      if (!customName) continue;
+      remotePvpDisplayNameByPlayer.set(sourcePlayerId, customName);
+      if (matchmakingStatus.opponentProfile && typeof matchmakingStatus.opponentProfile === 'object') {
+        const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+        if (!opponentId) {
+          matchmakingStatus.opponentProfile.id = sourcePlayerId;
+        }
+        if (!opponentId || opponentId === sourcePlayerId) {
+          applyOpponentPvpDisplayNameToMatchStatus();
+        }
+      }
+      console.info(`[PvP Sync] drained queued profile_sync matchSessionId=${nextSessionId}`);
+      continue;
+    }
+
+    if (item.type === 'ready') {
+      if (matchmakingStatus.phase !== 'matched') continue;
+      if (!hasActiveMatchedOpponent()) continue;
+      const isReady = item?.packet?.payload?.ready !== false;
+      if (matchmakingStatus.startPending && !isReady) continue;
+      matchmakingStatus.opponentReady = Boolean(isReady);
+      if (matchmakingStatus.opponentReady) {
+        console.info('[PvP Sync] 設定opponentReady=true (queued ready)');
+      }
+      refreshPvpReadyMessage();
+      checkBothReady('remote_ready_queued');
+      continue;
+    }
+
+    if (item.type === 'prepare_battle') {
+      if (matchmakingStatus.phase !== 'matched') continue;
+      if (!hasActiveMatchedOpponent()) continue;
+      if (isCurrentPlayerMatchHost()) continue;
+      const normalized = normalizeBattleGoPayload({
+        ...item.packet.payload,
+        matchSessionId: nextSessionId
+      });
+      if (!normalized.prepareId) continue;
+      pendingPrepareBattleState = {
+        ...normalized,
+        goSent: false,
+        ackPlayerId: item.sourcePlayerId
+      };
+      matchmakingStatus.startPending = true;
+      refreshPvpReadyMessage();
+      console.info(`[PvP Sync] drained queued prepare_battle prepareId=${normalized.prepareId}`);
+      void sendPvpRealtimeEvent('prepare_ack', {
+        prepareId: normalized.prepareId,
+        seed: normalized.seed,
+        countdownMs: normalized.countdownMs,
+        fogDurationMs: normalized.fogDurationMs
+      });
+      continue;
+    }
+
+    if (item.type === 'battle_go') {
+      if (matchmakingStatus.phase !== 'matched') continue;
+      if (!hasActiveMatchedOpponent()) continue;
+      const normalized = normalizeBattleGoPayload({
+        ...item.packet.payload,
+        matchSessionId: nextSessionId
+      });
+      scheduleBattleStartFromBattleGo({
+        ...normalized,
+        matchSessionId: nextSessionId
+      }, `queued_battle_go_${reason || 'session_ready'}`);
+      console.info(`[PvP Sync] drained queued battle_go matchSessionId=${nextSessionId}`);
+      continue;
+    }
+
+    if (item.type === 'start_battle' || item.type === 'battle_start') {
+      if (matchmakingStatus.phase !== 'matched') continue;
+      if (!hasActiveMatchedOpponent()) continue;
+      const mode = String(item?.packet?.payload?.mode ?? '').trim().toLowerCase();
+      if (mode && mode !== 'pvp') continue;
+      scheduleBattleStartFromBattleGo({
+        ...item.packet.payload,
+        matchSessionId: nextSessionId
+      }, `queued_${item.type}_${reason || 'session_ready'}`);
+      console.info(`[PvP Sync] drained queued ${item.type} matchSessionId=${nextSessionId}`);
+      continue;
+    }
+
+    remaining.push(item);
+  }
+
+  pendingSessionScopedPackets.length = 0;
+  remaining.forEach(item => pendingSessionScopedPackets.push(item));
+}
+
+function hasActiveMatchedOpponent() {
+  if (matchmakingStatus.phase !== 'matched') return false;
+  const connectedCount = normalizeConnectedPlayerCount(matchmakingStatus.connectedPlayerCount);
+  if (connectedCount <= 0) return false;
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  if (!opponentId || opponentId === 'pending-opponent') return false;
+  return true;
+}
+
+function requestHostSessionSync(reason = 'guest_session_missing') {
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (isCurrentPlayerMatchHost()) return;
+  if (!hasActiveMatchedOpponent()) return;
+  if (getCurrentPvpMatchSessionId()) return;
+  console.info('[PvP Sync] guest session missing -> request session_sync');
+  void sendPvpRealtimeEvent('session_sync_request', {
+    reason
+  });
+}
+
+function scheduleGuestSessionSyncRequest(reason = 'matched_enter') {
+  if (isCurrentPlayerMatchHost()) return;
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (!hasActiveMatchedOpponent()) return;
+  if (getCurrentPvpMatchSessionId()) return;
+  clearPendingGuestSessionSyncRequestTimer();
+  pendingGuestSessionSyncRequestTimer = setTimeout(() => {
+    pendingGuestSessionSyncRequestTimer = null;
+    if (getCurrentPvpMatchSessionId()) return;
+    requestHostSessionSync(reason);
+  }, 1000);
+}
+
+function hostResendSessionSync(reason = 'session_sync_request') {
+  if (!isCurrentPlayerMatchHost()) return;
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (!hasActiveMatchedOpponent()) return;
+  let sessionId = getCurrentPvpMatchSessionId();
+  if (!sessionId) {
+    sessionId = generatePvpMatchSessionId();
+    setCurrentPvpMatchSessionId(sessionId, `${reason}:host_regenerate`);
+  }
+  console.info(`[PvP Sync] host resend session_sync reason=${reason}`);
+  void sendPvpRealtimeEvent('session_sync', {
+    matchSessionId: sessionId,
+    sessionIssuedAtMs: Number(matchmakingStatus.matchedEnteredAtMs || Date.now()),
+    source: reason
+  });
+  void broadcastLocalPvpProfileSync(`resend_${reason}`);
+}
+
+function ensurePvpMatchSessionForMatchedState(reason = 'matched_state') {
+  if (matchmakingStatus.phase !== 'matched') return;
+  if (!hasActiveMatchedOpponent()) return;
+  if (getCurrentPvpMatchSessionId()) return;
+
+  if (!isCurrentPlayerMatchHost()) {
+    console.info(`[PvP Sync] guest等待host同步matchSessionId reason=${reason}`);
+    scheduleGuestSessionSyncRequest(reason);
+    return;
+  }
+
+  const nextSessionId = generatePvpMatchSessionId();
+  setCurrentPvpMatchSessionId(nextSessionId, `${reason}:host_generate`);
+  void sendPvpRealtimeEvent('session_sync', {
+    matchSessionId: nextSessionId,
+    sessionIssuedAtMs: Number(matchmakingStatus.matchedEnteredAtMs || Date.now()),
+    source: reason
+  });
+}
+
+function resolvePacketMatchSessionId(packet = {}) {
+  const direct = String(packet?.matchSessionId ?? '').trim();
+  if (direct) return direct;
+  const fromPayload = String(packet?.payload?.matchSessionId ?? '').trim();
+  return fromPayload;
+}
+
+function shouldIgnoreStalePvpMessage(type, packet = {}) {
+  if (!PVP_SESSION_SCOPED_MESSAGE_TYPES.has(type)) return false;
+  const incomingSessionId = resolvePacketMatchSessionId(packet);
+  const currentSessionId = getCurrentPvpMatchSessionId();
+  const isEndEvent = type === 'forfeit' || type === 'battle_end';
+
+  if (!incomingSessionId) {
+    console.info(`[PvP Sync] ignored stale PvP message type=${type} reason=missing_matchSessionId`);
+    return true;
+  }
+
+  if (!currentSessionId) {
+    if (
+      isEndEvent
+      && pvpEndUiState.phase === 'ending_fog'
+      && incomingSessionId
+      && incomingSessionId === String(pvpEndUiState.matchSessionId || '').trim()
+    ) {
+      console.info('[PvP End] duplicate end ignored during ending_fog');
+      return true;
+    }
+    if (isRecentlyEndedMatchSession(incomingSessionId) && isEndEvent) {
+      if (pvpEndUiState.phase === 'ending_fog') {
+        console.info('[PvP End] duplicate end ignored during ending_fog');
+        return true;
+      }
+      if (type === 'battle_end') {
+        console.info('[PvP End] duplicate battle_end ignored after forfeit');
+      } else {
+        console.info(`[PvP End] duplicate end ignored session=${incomingSessionId}`);
+      }
+      return true;
+    }
+    if (
+      canAcceptInitialSessionSync(packet)
+      && (
+        type === 'profile_sync'
+        || type === 'ready'
+        || type === 'prepare_battle'
+        || type === 'battle_go'
+        || type === 'start_battle'
+        || type === 'battle_start'
+      )
+    ) {
+      queuePendingSessionScopedPacket(type, packet);
+      scheduleGuestSessionSyncRequest(`queued_${type}`);
+      return true;
+    }
+    console.info(`[PvP Sync] ignored stale PvP message type=${type} reason=no_active_session`);
+    return true;
+  }
+
+  if (incomingSessionId !== currentSessionId) {
+    if (
+      isEndEvent
+      && pvpEndUiState.phase === 'ending_fog'
+      && incomingSessionId
+      && incomingSessionId === String(pvpEndUiState.matchSessionId || '').trim()
+    ) {
+      console.info('[PvP End] duplicate end ignored during ending_fog');
+      return true;
+    }
+    if (isRecentlyEndedMatchSession(incomingSessionId) && isEndEvent) {
+      if (pvpEndUiState.phase === 'ending_fog') {
+        console.info('[PvP End] duplicate end ignored during ending_fog');
+        return true;
+      }
+      if (type === 'battle_end') {
+        console.info('[PvP End] duplicate battle_end ignored after forfeit');
+      } else {
+        console.info(`[PvP End] duplicate end ignored session=${incomingSessionId}`);
+      }
+      return true;
+    }
+    console.info(`[PvP Sync] ignored stale PvP message type=${type} incoming=${incomingSessionId} current=${currentSessionId}`);
+    return true;
+  }
+
+  return false;
 }
 
 function clearSkillCastSyncTimers() {
@@ -2074,6 +2917,10 @@ function syncBattleTimeFromSkillCast(cast = null) {
 
 function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
   if (!cast || typeof cast !== 'object') return;
+  if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+    console.info('[PvP End] skill_cast ignored: battle already ended');
+    return;
+  }
   if (Array.isArray(cast.hitEvents) && cast.hitEvents.length > 0) return;
   if (appliedSkillCastDamageIds.has(cast.castId)) return;
   appliedSkillCastDamageIds.add(cast.castId);
@@ -2127,6 +2974,10 @@ function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
 function applySkillCastHitEvent(cast = null, hitEvent = null, reason = 'scheduled') {
   if (!cast || typeof cast !== 'object') return;
   if (!hitEvent || typeof hitEvent !== 'object') return;
+  if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+    console.info('[PvP End] skill_cast ignored: battle already ended');
+    return;
+  }
   const hitIndex = Math.max(1, Math.round(Number(hitEvent.hitIndex ?? 1)));
   const dedupeId = `${cast.castId}:${hitIndex}`;
   if (appliedSkillCastHitEventIds.has(dedupeId)) return;
@@ -2227,6 +3078,7 @@ async function clearSkillAnimation(reason = 'unknown', cast = null) {
 }
 
 function tryStartQueuedSkillCast(reason = 'queue_check') {
+  if (isPvpTerminalState()) return;
   if (activeSkillCast) return;
   if (queuedSkillCasts.length <= 0) return;
   if (currentScreen.value !== 'battle') return;
@@ -2296,12 +3148,21 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   } else {
     skillCastResolveTimer = setTimeout(() => {
       skillCastResolveTimer = null;
+      if (isPvpTerminalState()) {
+        console.info('[PvP End] skill_cast ignored: battle already ended');
+        return;
+      }
       applySkillCastAuthoritativeDamage(nextCast, 'resolve_at_ms');
     }, resolveDelay);
   }
 
   skillCastResumeTimer = setTimeout(() => {
     skillCastResumeTimer = null;
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] skill_cast ignored: battle already ended');
+      activeSkillCast = null;
+      return;
+    }
     if (hasHitEvents) {
       nextCast.hitEvents.forEach((hitEvent) => {
         applySkillCastHitEvent(nextCast, hitEvent, 'resume_flush');
@@ -2373,9 +3234,315 @@ function handleSkillCast(payload = {}, sourcePlayerId = '') {
   queueSkillCast(cast, 'remote_packet');
 }
 
+function isPvpTerminalState() {
+  return Boolean(pvpTerminal.value || pvpBattleEnded.value);
+}
+
+function isPvpEndUiLocked() {
+  return pvpEndUiState.phase === 'ending_fog' || pvpEndUiState.phase === 'result';
+}
+
+function applyPvpEndOutcomeToHp(localOutcome = '') {
+  if (localOutcome === 'win') {
+    opponentHp.value = 0;
+    if (playerHp.value <= 0) playerHp.value = 1;
+    return;
+  }
+  if (localOutcome === 'lose') {
+    playerHp.value = 0;
+    if (opponentHp.value <= 0) opponentHp.value = 1;
+    return;
+  }
+  if (localOutcome === 'draw') {
+    const hp = Math.max(1, Math.min(
+      Math.max(0, Math.round(Number(playerMaxHp.value ?? 1))),
+      Math.max(0, Math.round(Number(opponentMaxHp.value ?? 1))),
+    ));
+    playerHp.value = hp;
+    opponentHp.value = hp;
+  }
+}
+
+function buildPvpEndResultSnapshot(reason = 'unknown', result = {}) {
+  const normalizedReason = String(reason || 'unknown').trim() || 'unknown';
+  const explicitOutcome = normalizePvpLocalOutcome(result?.localOutcome);
+  const currentOutcome = normalizePvpLocalOutcome(currentBattleOutcome.value) || 'draw';
+  const localOutcome = explicitOutcome || currentOutcome;
+  const inBattle = currentScreen.value === 'battle' && isCurrentBattlePvP.value;
+  const explicitPhase = String(result?.phase ?? '').trim();
+  const phase = explicitPhase || (inBattle ? 'ended' : 'idle');
+  const sessionId = String(
+    result?.matchSessionId
+    ?? getCurrentPvpMatchSessionId()
+    ?? endedMatchSessionId.value
+    ?? ''
+  ).trim();
+  return {
+    reason: normalizedReason,
+    phase,
+    localOutcome,
+    message: String(result?.message ?? '').trim(),
+    matchSessionId: sessionId,
+    endedAtMs: Math.max(0, Math.round(Number(result?.endedAtMs ?? Date.now()))),
+    hostHp: Math.max(0, Math.round(Number(result?.hostHp ?? playerHp.value))),
+    guestHp: Math.max(0, Math.round(Number(result?.guestHp ?? opponentHp.value))),
+    winner: result?.winner ?? null,
+    loser: result?.loser ?? null,
+    raw: result
+  };
+}
+
+function lockPvpBattleInputForEnd(reason = 'unknown') {
+  pvpBattleEnded.value = true;
+  pvpTerminal.value = true;
+  battleEndBroadcasted = true;
+  clearPendingPvpStartTimer();
+  clearPendingPvpEndFogTimer();
+  clearRootCountdownTimer();
+  clearPendingGuestSessionSyncRequestTimer();
+  resetSkillCastSyncState();
+  statusEffectEngine?.reset?.(`finalize_${reason}`);
+  pendingPrepareBattleState = null;
+  pendingSessionScopedPackets.length = 0;
+  isBattleMenuOpen.value = false;
+  battleMenuView.value = 'main';
+  matchmakingStatus.localReady = false;
+  matchmakingStatus.opponentReady = false;
+  matchmakingStatus.startPending = false;
+  matchmakingStatus.startAtMs = 0;
+  matchmakingStatus.fogPending = false;
+  matchmakingStatus.fogEndAtMs = 0;
+  countdownNowMs.value = Date.now();
+  setPaused(true);
+  if (gameState.value !== 'finishing') {
+    gameState.value = 'finishing';
+  }
+  console.info('[PvP End] battle input locked before end fog');
+  console.info('[PvP End] all skill/status timers cancelled');
+  console.info('[PvP End] timers cleared');
+  console.info('[PvP End] ready state cleared');
+}
+
+function completePvpEndSequence(reason = 'unknown') {
+  if (pvpEndUiState.phase !== 'ending_fog') {
+    if (pvpEndUiState.phase === 'result') {
+      console.info('[PvP UI] result view locked after end fog');
+    }
+    return;
+  }
+  const snapshot = pvpEndUiState.result && typeof pvpEndUiState.result === 'object'
+    ? pvpEndUiState.result
+    : buildPvpEndResultSnapshot(reason, {});
+
+  clearPendingPvpEndFogTimer();
+  pvpEndUiState.phase = 'result';
+  pvpEndUiState.completedAtMs = Date.now();
+
+  applyPvpEndOutcomeToHp(snapshot.localOutcome);
+  gameState.value = 'gameResult';
+  setPaused(true);
+
+  if (snapshot.matchSessionId) {
+    markEndedMatchSession(snapshot.matchSessionId, `complete_${snapshot.reason}`);
+  }
+
+  clearCurrentPvpMatchSessionId(`complete_${snapshot.reason}`);
+  matchmakingStatus.phase = snapshot.phase === 'idle' ? 'idle' : 'ended';
+  matchmakingStatus.message = snapshot.message || (snapshot.phase === 'idle'
+    ? '對戰已結束，請重新配對。'
+    : '對戰已結束。');
+  matchmakingStatus.errorMessage = '';
+  matchmakingStatus.queueSeconds = 0;
+  matchmakingStatus.expectedPlayerCount = 0;
+  matchmakingStatus.connectedPlayerCount = 0;
+  matchmakingStatus.opponentProfile = null;
+
+  console.info('[PvP End] end fog complete, mount result screen');
+  console.info('[PvP End] result screen mounted after end fog');
+  console.info('[PvP UI] result view locked after end fog');
+  console.info(`[PvP End] phase set to ${matchmakingStatus.phase}`);
+
+  rootFogOverlayPhase.value = 'fade-out';
+  pendingRootFogFadeOutTimer = setTimeout(() => {
+    pendingRootFogFadeOutTimer = null;
+    rootFogOverlayVisible.value = false;
+    rootFogOverlayPhase.value = 'pre';
+  }, 320);
+}
+
+function beginPvpEndSequence(reason = 'unknown', result = {}) {
+  const snapshot = buildPvpEndResultSnapshot(reason, result);
+  const currentSessionId = snapshot.matchSessionId;
+  const inBattle = currentScreen.value === 'battle' && isCurrentBattlePvP.value;
+
+  if (!inBattle) {
+    finalizePvpBattle(snapshot.reason, {
+      ...result,
+      phase: snapshot.phase,
+      localOutcome: snapshot.localOutcome,
+      matchSessionId: snapshot.matchSessionId,
+      message: snapshot.message
+    });
+    return;
+  }
+
+  if (pvpEndUiState.phase === 'ending_fog') {
+    if (!currentSessionId || currentSessionId === pvpEndUiState.matchSessionId) {
+      console.info('[PvP End] duplicate end ignored during ending_fog');
+      return;
+    }
+  }
+  if (pvpEndUiState.phase === 'result') {
+    if (!currentSessionId || currentSessionId === pvpEndUiState.matchSessionId) {
+      console.info(`[PvP End] duplicate end ignored session=${currentSessionId || pvpEndUiState.matchSessionId || 'none'}`);
+      console.info('[PvP End] finalize skipped: already terminal');
+      return;
+    }
+  }
+
+  console.info(`[PvP End] begin end sequence reason=${snapshot.reason}`);
+  lockPvpBattleInputForEnd(snapshot.reason);
+  pvpEndUiState.phase = 'ending_fog';
+  pvpEndUiState.reason = snapshot.reason;
+  pvpEndUiState.matchSessionId = snapshot.matchSessionId;
+  pvpEndUiState.result = snapshot;
+  pvpEndUiState.startedAtMs = Date.now();
+  pvpEndUiState.completedAtMs = 0;
+
+  matchmakingStatus.phase = 'ending';
+  matchmakingStatus.message = snapshot.message || '對戰已結束，正在結算結果...';
+  console.info('[PvP UI] battle kept as background during ending_fog');
+
+  const timeline = resolveFogTimeline(PVP_END_FOG_DURATION_MS);
+  rootFogTimeline.durationMs = timeline.totalMs;
+  rootFogTimeline.thinEndMs = timeline.thinEndMs;
+  rootFogTimeline.buildEndMs = timeline.buildEndMs;
+  rootFogTimeline.holdEndMs = timeline.holdEndMs;
+  rootFogOverlayVisible.value = true;
+  rootFogOverlayPhase.value = 'pre';
+  console.info('[PvP End] end fog start');
+
+  scheduleRootFogPhaseTimer(0, () => {
+    rootFogOverlayPhase.value = 'thin';
+  });
+  scheduleRootFogPhaseTimer(timeline.thinEndMs, () => {
+    rootFogOverlayPhase.value = 'build';
+  });
+  scheduleRootFogPhaseTimer(timeline.buildEndMs, () => {
+    rootFogOverlayPhase.value = 'hold';
+    console.info('[PvP End] end fog full density');
+  });
+
+  clearPendingPvpEndFogTimer();
+  pendingPvpEndFogCompleteTimer = setTimeout(() => {
+    pendingPvpEndFogCompleteTimer = null;
+    completePvpEndSequence(snapshot.reason);
+  }, timeline.holdEndMs);
+}
+
+function resetPvpTerminalState(reason = 'reset') {
+  if (!pvpTerminal.value && !pvpBattleEnded.value) return;
+  console.info(`[PvP End] reset terminal state reason=${reason}`);
+  pvpTerminal.value = false;
+  pvpBattleEnded.value = false;
+  clearActiveEndedMatchSession(`terminal_reset_${reason}`);
+  clearPvpEndUiState(`terminal_reset_${reason}`);
+  rootFogOverlayVisible.value = false;
+  rootFogOverlayPhase.value = 'pre';
+}
+
+function finalizePvpBattle(reason = 'unknown', result = {}) {
+  const normalizedReason = String(reason || 'unknown').trim() || 'unknown';
+  const snapshot = buildPvpEndResultSnapshot(normalizedReason, result);
+  const inPvpBattle = currentScreen.value === 'battle' && isCurrentBattlePvP.value;
+  const nextPhase = snapshot.phase;
+  const localOutcome = snapshot.localOutcome;
+  const explicitMessage = snapshot.message;
+  const resolvedMatchSessionId = snapshot.matchSessionId;
+  const sameEndedSession = Boolean(
+    resolvedMatchSessionId
+    && isRecentlyEndedMatchSession(resolvedMatchSessionId)
+  );
+
+  if (isPvpTerminalState() && sameEndedSession && nextPhase !== 'idle') {
+    if (normalizedReason.includes('battle_end')) {
+      console.info('[PvP End] duplicate battle_end ignored after forfeit');
+    } else {
+      console.info(`[PvP End] duplicate end ignored session=${resolvedMatchSessionId}`);
+    }
+    console.info('[PvP End] finalize skipped: already terminal');
+    return;
+  }
+  if (isPvpTerminalState() && !resolvedMatchSessionId && nextPhase !== 'idle') {
+    console.info('[PvP End] finalize skipped: already terminal');
+    return;
+  }
+
+  console.info(`[PvP End] finalizePvpBattle reason=${normalizedReason}`);
+  pvpBattleEnded.value = true;
+  pvpTerminal.value = true;
+  battleEndBroadcasted = true;
+
+  clearPendingPvpStartTimer();
+  clearRootCountdownTimer();
+  clearPendingGuestSessionSyncRequestTimer();
+  resetSkillCastSyncState();
+  statusEffectEngine?.reset?.(`finalize_${normalizedReason}`);
+  console.info('[PvP End] all skill/status timers cancelled');
+  pendingPrepareBattleState = null;
+  pendingSessionScopedPackets.length = 0;
+  countdownNowMs.value = Date.now();
+  const shouldKeepActiveEndFog = pvpEndUiState.phase === 'ending_fog' && inPvpBattle && nextPhase !== 'idle';
+  if (!shouldKeepActiveEndFog) {
+    rootFogOverlayVisible.value = false;
+    rootFogOverlayPhase.value = 'pre';
+  }
+  console.info('[PvP End] timers cleared');
+
+  matchmakingStatus.localReady = false;
+  matchmakingStatus.opponentReady = false;
+  matchmakingStatus.startPending = false;
+  matchmakingStatus.startAtMs = 0;
+  matchmakingStatus.fogPending = false;
+  matchmakingStatus.fogEndAtMs = 0;
+  console.info('[PvP End] ready state cleared');
+
+  if (inPvpBattle) {
+    applyPvpEndOutcomeToHp(localOutcome);
+    if (gameState.value !== 'gameResult') {
+      gameState.value = 'gameResult';
+    }
+    setPaused(true);
+    console.info('[PvP End] battle input locked');
+    if (normalizedReason === 'remote_forfeit') {
+      console.info('[PvP End] result screen mounted reason=remote_forfeit');
+    }
+  }
+
+  if (resolvedMatchSessionId) {
+    markEndedMatchSession(resolvedMatchSessionId, normalizedReason);
+  }
+  clearPvpEndUiState(`finalize_${normalizedReason}`);
+  clearCurrentPvpMatchSessionId(`finalize_${normalizedReason}`);
+  matchmakingStatus.phase = nextPhase;
+  matchmakingStatus.message = explicitMessage || (nextPhase === 'idle'
+    ? '對戰已結束，請重新配對。'
+    : '對戰已結束。');
+  matchmakingStatus.errorMessage = '';
+  matchmakingStatus.queueSeconds = 0;
+  matchmakingStatus.expectedPlayerCount = 0;
+  matchmakingStatus.connectedPlayerCount = 0;
+  matchmakingStatus.opponentProfile = null;
+  console.info(`[PvP End] phase set to ${nextPhase}`);
+}
+
 function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
   if (!isCurrentPlayerMatchHost()) return;
   if (!isCurrentBattlePvP.value || currentScreen.value !== 'battle') return;
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] skill_cast ignored: battle already ended');
+    return;
+  }
   if (gameState.value === 'gameResult' || gameState.value === 'finishing') return;
   const requesterId = String(sourcePlayerId ?? '').trim();
   if (!requesterId) return;
@@ -2414,10 +3581,14 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
 
 function resetPvpReadyState() {
   clearPendingPvpStartTimer();
+  clearPendingGuestSessionSyncRequestTimer();
   resetSkillCastSyncState();
+  pendingPrepareBattleState = null;
   statusEffectEngine?.reset?.('reset_pvp_ready_state');
-  rootFogOverlayVisible.value = false;
-  rootFogOverlayPhase.value = 'pre';
+  if (!isPvpEndUiLocked()) {
+    rootFogOverlayVisible.value = false;
+    rootFogOverlayPhase.value = 'pre';
+  }
   rootFogTimeline.durationMs = PVP_FOG_TRANSITION_MS;
   rootFogTimeline.thinEndMs = 500;
   rootFogTimeline.buildEndMs = 1300;
@@ -2428,12 +3599,22 @@ function resetPvpReadyState() {
   matchmakingStatus.startAtMs = 0;
   matchmakingStatus.fogPending = false;
   matchmakingStatus.fogEndAtMs = 0;
-  battleEndBroadcasted = false;
+  if (!isPvpTerminalState()) {
+    battleEndBroadcasted = false;
+  }
   lastPvpBattleSeed = '';
 }
 
 function refreshPvpReadyMessage() {
   if (matchmakingStatus.phase !== 'matched') return;
+  if (!getCurrentPvpMatchSessionId()) {
+    matchmakingStatus.message = '配對成功，正在同步對戰會話...';
+    return;
+  }
+  if (!hasActiveMatchedOpponent()) {
+    matchmakingStatus.message = '配對連線確認中，請稍候...';
+    return;
+  }
   if (matchmakingStatus.fogPending) {
     matchmakingStatus.message = '雙方已準備，正在進入對戰...';
     return;
@@ -2525,6 +3706,10 @@ function resolveFogTimeline(durationMs = PVP_FOG_TRANSITION_MS) {
 }
 
 function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] start_battle blocked: terminal');
+    return;
+  }
   if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
   const fogDurationRaw = Number(options?.fogDurationMs ?? PVP_FOG_TRANSITION_MS);
   const timeline = resolveFogTimeline(fogDurationRaw);
@@ -2533,9 +3718,8 @@ function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
     ? Number(fogStartAtMs)
     : Date.now();
   const nowMs = Date.now();
-  const suggestedBattleAt = Math.max(nowMs, normalizedFogStartAt + fogDurationMs);
-  const battleAt = Math.max(suggestedBattleAt, nowMs + fogDurationMs);
-  const delay = Math.max(fogDurationMs, battleAt - nowMs);
+  const battleAt = normalizedFogStartAt + fogDurationMs;
+  const delay = Math.max(0, battleAt - nowMs);
   clearPendingPvpStartTimer();
   rootFogTimeline.durationMs = fogDurationMs;
   rootFogTimeline.thinEndMs = timeline.thinEndMs;
@@ -2546,7 +3730,7 @@ function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
   matchmakingStatus.fogPending = true;
   matchmakingStatus.fogEndAtMs = battleAt;
   refreshPvpReadyMessage();
-  console.info(`[PvP Sync] 霧化轉場啟動 fogDuration=${fogDurationMs}ms battleDelay=${delay}ms thinEnd=${timeline.thinEndMs} buildEnd=${timeline.buildEndMs}`);
+  console.info(`[PvP Sync] 霧化轉場啟動 fogDuration=${fogDurationMs}ms battleAt=${Math.round(battleAt)} battleDelay=${Math.round(delay)}ms thinEnd=${timeline.thinEndMs} buildEnd=${timeline.buildEndMs}`);
   scheduleRootFogPhaseTimer(0, () => {
     rootFogOverlayPhase.value = 'thin';
     console.info('[PvP Sync] fog phase=thin');
@@ -2572,13 +3756,76 @@ function beginPvpFogTransition(fogStartAtMs = Date.now(), options = {}) {
   }, delay);
 }
 
+function normalizeBattleGoPayload(rawPayload = {}) {
+  const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
+  const countdownMsRaw = Number(payload.countdownMs);
+  const countdownMs = Number.isFinite(countdownMsRaw) && countdownMsRaw > 0
+    ? Math.max(PVP_FALLBACK_COUNTDOWN_MS, Math.round(countdownMsRaw))
+    : PVP_FALLBACK_COUNTDOWN_MS;
+  const fogDurationMsRaw = Number(payload.fogDurationMs);
+  const fogDurationMs = Number.isFinite(fogDurationMsRaw) && fogDurationMsRaw > 0
+    ? Math.max(1500, Math.min(2200, Math.round(fogDurationMsRaw)))
+    : PVP_FOG_TRANSITION_MS;
+  return {
+    seed: String(payload.seed ?? '').trim(),
+    prepareId: String(payload.prepareId ?? '').trim(),
+    countdownMs,
+    fogDurationMs,
+    matchSessionId: String(payload.matchSessionId ?? '').trim()
+  };
+}
+
+function scheduleBattleStartFromBattleGo(rawPayload = {}, source = 'unknown') {
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] start_battle blocked: terminal');
+    return;
+  }
+  const normalized = normalizeBattleGoPayload(rawPayload);
+  const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
+  const currentSessionId = getCurrentPvpMatchSessionId();
+  if (normalized.matchSessionId && currentSessionId && normalized.matchSessionId !== currentSessionId) {
+    console.info(`[PvP Sync] ignored stale PvP message type=battle_go incoming=${normalized.matchSessionId} current=${currentSessionId}`);
+    return;
+  }
+
+  const hostStartAtMs = Number(payload.startAt);
+  const localReceivedAtMs = Date.now();
+  const rawRemainingMs = Number.isFinite(hostStartAtMs)
+    ? Math.round(hostStartAtMs - localReceivedAtMs)
+    : Number.NaN;
+  const localCountdownMs = normalized.countdownMs;
+  const effectiveStartAtMs = localReceivedAtMs + localCountdownMs;
+  const fallback = localCountdownMs === PVP_FALLBACK_COUNTDOWN_MS;
+
+  console.info(`[PvP Sync] scheduleBattleStartFromBattleGo source=${source} hostStartAtMs=${Number.isFinite(hostStartAtMs) ? Math.round(hostStartAtMs) : -1} localReceivedAtMs=${localReceivedAtMs} rawRemainingMs=${Number.isFinite(rawRemainingMs) ? rawRemainingMs : 'NaN'} localCountdownMs=${localCountdownMs} fallback=${fallback ? 'true' : 'false'}`);
+
+  startPreBattleCountdown({
+    source: `battle_go_schedule_${source}`,
+    startAt: effectiveStartAtMs,
+    fogDurationMs: normalized.fogDurationMs,
+    matchSessionId: normalized.matchSessionId || currentSessionId,
+    seed: normalized.seed
+  });
+}
+
 function startPreBattleCountdown({
   startAt = Date.now(),
   fogDurationMs = PVP_FOG_TRANSITION_MS,
   seed = '',
+  matchSessionId = '',
   source = 'unknown'
 } = {}) {
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] start_battle blocked: terminal');
+    return;
+  }
   if (currentScreen.value === 'battle' && battleSessionMode.value === 'pvp') return;
+  const currentSessionId = getCurrentPvpMatchSessionId();
+  const normalizedSessionId = String(matchSessionId || '').trim();
+  if (normalizedSessionId && currentSessionId && normalizedSessionId !== currentSessionId) {
+    console.info(`[PvP Sync] ignored stale PvP message type=start_battle incoming=${normalizedSessionId} current=${currentSessionId}`);
+    return;
+  }
   clearPendingPvpStartTimer();
   const safeStartAt = Number.isFinite(Number(startAt)) ? Math.round(Number(startAt)) : 0;
   if (safeStartAt <= 0) {
@@ -2620,7 +3867,25 @@ function startPreBattleCountdown({
 
 function checkBothReady(reason = '') {
   console.info(`[PvP Sync] checkBothReady被呼叫 reason=${reason} selfReady=${String(matchmakingStatus.localReady)} opponentReady=${String(matchmakingStatus.opponentReady)} phase=${matchmakingStatus.phase}`);
-  if (matchmakingStatus.phase !== 'matched') return;
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] checkBothReady blocked: terminal');
+    console.info('[PvP Sync] checkBothReady blocked: terminal or invalid session');
+    return;
+  }
+  const matchSessionId = getCurrentPvpMatchSessionId();
+  const opponentId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+  const connectedCount = normalizeConnectedPlayerCount(matchmakingStatus.connectedPlayerCount);
+  const hasValidMatch = matchmakingStatus.phase === 'matched'
+    && Boolean(matchSessionId)
+    && connectedCount > 0
+    && Boolean(opponentId)
+    && opponentId !== 'pending-opponent';
+
+  if (!hasValidMatch) {
+    console.info('[PvP Sync] checkBothReady blocked: terminal or invalid session');
+    console.info(`[PvP Sync] checkBothReady blocked: invalid match or no active opponent phase=${matchmakingStatus.phase} session=${matchSessionId || 'none'} connected=${connectedCount} opponentId=${opponentId || 'none'}`);
+    return;
+  }
   if (!matchmakingStatus.localReady || !matchmakingStatus.opponentReady) return;
   if (matchmakingStatus.startPending) return;
 
@@ -2633,29 +3898,59 @@ function checkBothReady(reason = '') {
 
   const seed = generatePvpBattleSeed();
   lastPvpBattleSeed = seed;
-  const startAt = Date.now() + PVP_READY_COUNTDOWN_MS + PVP_START_GUARD_MS;
-  console.info(`[PvP Sync] host送出start_battle seed=${seed}`);
-  void sendPvpRealtimeEvent('start_battle', {
+  const prepareId = `prepare-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  const countdownMs = PVP_FALLBACK_COUNTDOWN_MS;
+  const preparePayload = {
     mode: 'pvp',
     seed,
-    startAt,
-    fogDurationMs: PVP_FOG_TRANSITION_MS
-  });
-  startPreBattleCountdown({
-    source: 'host_local',
-    startAt,
+    prepareId,
+    countdownMs,
     fogDurationMs: PVP_FOG_TRANSITION_MS,
-    seed
-  });
+    matchSessionId
+  };
+  pendingPrepareBattleState = {
+    ...preparePayload,
+    goSent: false,
+    ackPlayerId: ''
+  };
+  matchmakingStatus.startPending = true;
+  refreshPvpReadyMessage();
+  console.info(`[PvP Sync] host送出prepare_battle prepareId=${prepareId} seed=${seed}`);
+  void sendPvpRealtimeEvent('prepare_battle', preparePayload);
 }
 
 function markLocalPlayerReady() {
+  if (isPvpTerminalState()) {
+    console.info('[PvP End] checkBothReady blocked: terminal');
+    return;
+  }
   if (matchmakingStatus.phase !== 'matched') return;
   if (matchmakingStatus.startPending) return;
+  const matchSessionId = getCurrentPvpMatchSessionId();
+  if (!matchSessionId) {
+    console.info('[PvP Sync] 無法準備：尚未同步 matchSessionId');
+    refreshPvpReadyMessage();
+    return;
+  }
+  if (!hasActiveMatchedOpponent()) {
+    console.info('[PvP Sync] 無法準備：目前沒有有效對手連線');
+    refreshPvpReadyMessage();
+    return;
+  }
   const nextReady = !matchmakingStatus.localReady;
   matchmakingStatus.localReady = nextReady;
   refreshPvpReadyMessage();
   console.info(`[PvP Sync] 本機${nextReady ? '送出ready' : '取消ready'}`);
+  if (nextReady && isCurrentPlayerMatchHost()) {
+    const sessionId = getCurrentPvpMatchSessionId();
+    if (sessionId) {
+      void sendPvpRealtimeEvent('session_sync', {
+        matchSessionId: sessionId,
+        sessionIssuedAtMs: Number(matchmakingStatus.matchedEnteredAtMs || Date.now()),
+        source: 'host_ready_resync'
+      });
+    }
+  }
   if (nextReady) {
     void broadcastLocalPvpProfileSync('local_ready');
   }
@@ -2673,6 +3968,7 @@ function resetPvpRealtimeState() {
   localPvpEventSeq = 0;
   remotePvpEventSeqByPlayer.clear();
   remotePvpDisplayNameByPlayer.clear();
+  clearCurrentPvpMatchSessionId('reset_realtime_state');
   resetPvpReadyState();
 }
 
@@ -2772,12 +4068,29 @@ function normalizeIncomingPvpPacket(packet = {}) {
 async function sendPvpRealtimeEvent(type, payload = {}) {
   const eventType = String(type || '').trim();
   if (!eventType) return;
+  const sessionScoped = PVP_SESSION_SCOPED_MESSAGE_TYPES.has(eventType);
+  const currentSessionId = getCurrentPvpMatchSessionId();
+  const nextPayload = payload && typeof payload === 'object'
+    ? { ...payload }
+    : {};
+  const payloadSessionId = String(nextPayload.matchSessionId ?? '').trim();
+  const resolvedSessionId = payloadSessionId || currentSessionId;
+
+  if (sessionScoped && !resolvedSessionId) {
+    console.info(`[PvP Sync] skip sendRealtimeEvent type=${eventType} reason=missing_matchSessionId`);
+    return;
+  }
+  if (resolvedSessionId) {
+    nextPayload.matchSessionId = resolvedSessionId;
+  }
+
   const packet = {
     version: 1,
     type: eventType,
     seq: nextLocalPvpEventSeq(),
     ts: Date.now(),
-    payload
+    matchSessionId: resolvedSessionId || '',
+    payload: nextPayload
   };
   try {
     await matchService.sendRealtimeEvent(packet);
@@ -2792,49 +4105,61 @@ async function sendPvpRealtimeEvent(type, payload = {}) {
   }
 }
 
-function broadcastHostBattleEndNow(reason = 'skill_cast_complete') {
-  if (!isCurrentBattlePvP.value) return;
-  if (!isCurrentPlayerMatchHost()) return;
-  if (battleEndBroadcasted) return;
+function emitHostBattleEndPacket(reason = 'state_watch', { immediate = false } = {}) {
+  if (!isCurrentBattlePvP.value) return null;
+  if (!isCurrentPlayerMatchHost()) return null;
+  if (battleEndBroadcasted) return null;
 
   const hostPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
   const guestPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
   const battleEndId = `battle-end-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-  battleEndBroadcasted = true;
-  console.info(`[PvP Sync] host立即送出battle_end battleEndId=${battleEndId} reason=${reason}`);
-  void sendPvpRealtimeEvent('battle_end', {
+  const packet = {
     battleEndId,
     hostPlayerId,
     guestPlayerId,
     hostHp: Math.max(0, Math.round(Number(playerHp.value ?? 0))),
     guestHp: Math.max(0, Math.round(Number(opponentHp.value ?? 0))),
     endedAtMs: Date.now()
-  });
-
-  if (gameState.value !== 'gameResult') {
-    gameState.value = 'gameResult';
+  };
+  battleEndBroadcasted = true;
+  if (immediate) {
+    console.info(`[PvP Sync] host立即送出battle_end battleEndId=${battleEndId} reason=${reason}`);
+  } else {
+    console.info(`[PvP Sync] host送出battle_end battleEndId=${battleEndId} reason=${reason}`);
   }
+  void sendPvpRealtimeEvent('battle_end', packet);
+  return packet;
+}
+
+function broadcastHostBattleEndNow(reason = 'skill_cast_complete') {
+  const battleEndPacket = emitHostBattleEndPacket(reason, { immediate: true });
+  if (!battleEndPacket) return;
+  const localOutcome = playerHp.value > opponentHp.value
+    ? 'win'
+    : (playerHp.value < opponentHp.value ? 'lose' : 'draw');
+  beginPvpEndSequence(`host_battle_end_${reason}`, {
+    phase: 'ended',
+    matchSessionId: String(battleEndPacket.matchSessionId ?? getCurrentPvpMatchSessionId() ?? '').trim(),
+    localOutcome,
+    message: '對戰已結束。'
+  });
 }
 
 function maybeBroadcastHostBattleEnd(reason = 'state_watch') {
   if (!isCurrentBattlePvP.value) return;
   if (currentScreen.value !== 'battle') return;
   if (gameState.value !== 'gameResult') return;
-  if (!isCurrentPlayerMatchHost()) return;
-  if (battleEndBroadcasted) return;
-
-  const hostPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
-  const guestPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
-  const battleEndId = `battle-end-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-  battleEndBroadcasted = true;
-  console.info(`[PvP Sync] host送出battle_end battleEndId=${battleEndId} reason=${reason}`);
-  void sendPvpRealtimeEvent('battle_end', {
-    battleEndId,
-    hostPlayerId,
-    guestPlayerId,
-    hostHp: Math.max(0, Math.round(Number(playerHp.value ?? 0))),
-    guestHp: Math.max(0, Math.round(Number(opponentHp.value ?? 0))),
-    endedAtMs: Date.now()
+  if (isPvpEndUiLocked()) return;
+  const battleEndPacket = emitHostBattleEndPacket(reason, { immediate: false });
+  if (!battleEndPacket) return;
+  const localOutcome = playerHp.value > opponentHp.value
+    ? 'win'
+    : (playerHp.value < opponentHp.value ? 'lose' : 'draw');
+  beginPvpEndSequence(`host_battle_end_${reason}`, {
+    phase: 'ended',
+    matchSessionId: String(battleEndPacket.matchSessionId ?? getCurrentPvpMatchSessionId() ?? '').trim(),
+    localOutcome,
+    message: '對戰已結束。'
   });
 }
 
@@ -2843,6 +4168,11 @@ async function handlePlayerSkillUse(skill = null) {
 
   if (!isCurrentBattlePvP.value || currentScreen.value !== 'battle') {
     await useSkillCore(skill);
+    return;
+  }
+
+  if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+    console.info('[PvP End] skill_cast ignored: battle already ended');
     return;
   }
 
@@ -2903,6 +4233,10 @@ async function handlePlayerSkillUse(skill = null) {
 function handleLocalPvpAttack(event = {}) {
   if (!isCurrentBattlePvP.value) return;
   if (currentScreen.value !== 'battle') return;
+  if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+    console.info('[PvP End] damage ignored: battle already ended');
+    return;
+  }
   if (String(event?.type ?? '') !== 'damage') return;
   const amount = Math.max(0, Number(event?.amount ?? 0));
   if (amount <= 0) return;
@@ -2920,12 +4254,184 @@ function handlePvpRealtimeEvent(packet = {}) {
   if (!normalizedPacket || typeof normalizedPacket !== 'object') return;
   if (!shouldAcceptPvpPacket(normalizedPacket)) return;
 
+  const packetState = String(normalizedPacket?.state ?? '').trim().toLowerCase();
+  if (packetState === 'disconnected') {
+    const reason = 'remote_disconnected';
+    const inBattle = isCurrentBattlePvP.value && currentScreen.value === 'battle';
+    if (inBattle) {
+      beginPvpEndSequence(reason, {
+        phase: 'ended',
+        localOutcome: 'win',
+        message: '對手已離線，判定你獲勝。'
+      });
+    } else {
+      finalizePvpBattle(reason, {
+        phase: 'idle',
+        message: '對手已離線，請重新配對。'
+      });
+    }
+    return;
+  }
+
   const type = String(normalizedPacket.type ?? '').trim();
   console.info(`[PvP Sync] 解析後message.type=${type || 'unknown'}`);
   if (!type) return;
+  if (isPvpTerminalState() && isPvpEndUiLocked() && type !== 'forfeit' && type !== 'battle_end') {
+    console.info(`[PvP End] ${type} ignored: battle already ended`);
+    return;
+  }
+
+  if (type === 'session_sync') {
+    if (matchmakingStatus.phase !== 'matched' && matchmakingStatus.phase !== 'searching') return;
+    const sourcePlayerId = String(normalizedPacket?._sourcePlayerId ?? '').trim();
+    const opponentPlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+    if (sourcePlayerId && opponentPlayerId && sourcePlayerId !== opponentPlayerId) {
+      console.info('[PvP Sync] ignored stale PvP message type=session_sync reason=unexpected_sender');
+      return;
+    }
+    const syncedSessionId = resolvePacketMatchSessionId(normalizedPacket);
+    if (!syncedSessionId) return;
+    const currentSessionId = getCurrentPvpMatchSessionId();
+    if (!currentSessionId) {
+      if (!canAcceptInitialSessionSync(normalizedPacket)) {
+        console.info('[PvP Sync] ignored stale PvP message type=session_sync reason=no_valid_opponent_context');
+        return;
+      }
+      console.info(`[PvP Sync] accepted host session_sync matchSessionId=${syncedSessionId}`);
+      setCurrentPvpMatchSessionId(syncedSessionId, 'remote_session_sync_first_accept');
+      console.info('[PvP Sync] currentMatchSessionId set from host');
+      refreshPvpReadyMessage();
+      return;
+    }
+
+    if (currentSessionId !== syncedSessionId) {
+      console.info(`[PvP Sync] ignored stale PvP message type=session_sync incoming=${syncedSessionId} current=${currentSessionId}`);
+      return;
+    }
+
+    setCurrentPvpMatchSessionId(syncedSessionId, 'remote_session_sync_refresh');
+    refreshPvpReadyMessage();
+    return;
+  }
+
+  if (type === 'session_sync_request') {
+    if (!isCurrentPlayerMatchHost()) return;
+    if (!hasActiveMatchedOpponent()) return;
+    if (!isPacketFromCurrentMatchedOpponent(normalizedPacket)) return;
+    hostResendSessionSync('session_sync_request');
+    return;
+  }
+
+  if (type === 'prepare_battle') {
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] start_battle blocked: terminal');
+      return;
+    }
+    if (matchmakingStatus.phase !== 'matched') return;
+    if (!hasActiveMatchedOpponent()) return;
+    const sourcePlayerId = String(normalizedPacket?._sourcePlayerId ?? '').trim();
+    if (!isPacketFromCurrentMatchedOpponent(normalizedPacket)) return;
+    if (isCurrentPlayerMatchHost()) return;
+    const normalized = normalizeBattleGoPayload({
+      ...normalizedPacket.payload,
+      matchSessionId: resolvePacketMatchSessionId(normalizedPacket)
+    });
+    if (!normalized.prepareId) return;
+    pendingPrepareBattleState = {
+      ...normalized,
+      goSent: false,
+      ackPlayerId: sourcePlayerId
+    };
+    matchmakingStatus.startPending = true;
+    refreshPvpReadyMessage();
+    console.info(`[PvP Sync] guest收到prepare_battle prepareId=${normalized.prepareId}`);
+    void sendPvpRealtimeEvent('prepare_ack', {
+      prepareId: normalized.prepareId,
+      seed: normalized.seed,
+      countdownMs: normalized.countdownMs,
+      fogDurationMs: normalized.fogDurationMs
+    });
+    return;
+  }
+
+  if (type === 'prepare_ack') {
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] start_battle blocked: terminal');
+      return;
+    }
+    if (matchmakingStatus.phase !== 'matched') return;
+    if (!hasActiveMatchedOpponent()) return;
+    if (!isCurrentPlayerMatchHost()) return;
+    if (!isPacketFromCurrentMatchedOpponent(normalizedPacket)) return;
+    const prepareId = String(normalizedPacket?.payload?.prepareId ?? '').trim();
+    if (!prepareId) return;
+    if (!pendingPrepareBattleState || pendingPrepareBattleState.prepareId !== prepareId) {
+      console.info(`[PvP Sync] 忽略prepare_ack，prepareId不一致 incoming=${prepareId}`);
+      return;
+    }
+    if (pendingPrepareBattleState.goSent) return;
+    pendingPrepareBattleState.goSent = true;
+    pendingPrepareBattleState.ackPlayerId = String(normalizedPacket?._sourcePlayerId ?? '').trim();
+    console.info(`[PvP Sync] host收到prepare_ack，送出battle_go prepareId=${prepareId}`);
+    void sendPvpRealtimeEvent('battle_go', {
+      prepareId: pendingPrepareBattleState.prepareId,
+      seed: pendingPrepareBattleState.seed,
+      countdownMs: pendingPrepareBattleState.countdownMs,
+      fogDurationMs: pendingPrepareBattleState.fogDurationMs
+    });
+    scheduleBattleStartFromBattleGo({
+      ...pendingPrepareBattleState,
+      matchSessionId: getCurrentPvpMatchSessionId()
+    }, 'host_after_prepare_ack');
+    return;
+  }
+
+  if (type === 'battle_go') {
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] start_battle blocked: terminal');
+      return;
+    }
+    if (matchmakingStatus.phase !== 'matched') return;
+    if (!hasActiveMatchedOpponent()) return;
+    const sourcePlayerId = String(normalizedPacket?._sourcePlayerId ?? '').trim();
+    if (sourcePlayerId && !isCurrentPlayerMatchHost() && !isPacketFromCurrentMatchedOpponent(normalizedPacket)) return;
+    if (sourcePlayerId && isCurrentPlayerMatchHost() && sourcePlayerId !== resolveMatchPlayerId(matchmakingStatus.localProfile)) {
+      return;
+    }
+    const normalized = normalizeBattleGoPayload({
+      ...normalizedPacket.payload,
+      matchSessionId: resolvePacketMatchSessionId(normalizedPacket)
+    });
+    if (pendingPrepareBattleState && normalized.prepareId && pendingPrepareBattleState.prepareId && pendingPrepareBattleState.prepareId !== normalized.prepareId) {
+      console.info(`[PvP Sync] 忽略battle_go，prepareId不一致 incoming=${normalized.prepareId}`);
+      return;
+    }
+    pendingPrepareBattleState = {
+      ...normalized,
+      goSent: true,
+      ackPlayerId: sourcePlayerId
+    };
+    scheduleBattleStartFromBattleGo({
+      ...normalized,
+      matchSessionId: resolvePacketMatchSessionId(normalizedPacket)
+    }, sourcePlayerId ? 'remote_battle_go' : 'local_battle_go');
+    return;
+  }
+
+  if (shouldIgnoreStalePvpMessage(type, normalizedPacket)) {
+    return;
+  }
 
   if (type === 'ready') {
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] checkBothReady blocked: terminal');
+      return;
+    }
     if (matchmakingStatus.phase !== 'matched') return;
+    if (!hasActiveMatchedOpponent()) {
+      console.info('[PvP Sync] 忽略ready：目前沒有有效對手連線');
+      return;
+    }
     const isReady = normalizedPacket?.payload?.ready !== false;
     if (matchmakingStatus.startPending && !isReady) {
       console.info('[PvP Sync] 倒數已開始，忽略對手取消ready');
@@ -2960,7 +4466,15 @@ function handlePvpRealtimeEvent(packet = {}) {
   }
 
   if (type === 'start_battle' || type === 'battle_start') {
+    if (isPvpTerminalState()) {
+      console.info('[PvP End] start_battle blocked: terminal');
+      return;
+    }
     if (matchmakingStatus.phase !== 'matched') return;
+    if (!hasActiveMatchedOpponent()) {
+      console.info('[PvP Sync] 忽略start_battle：目前沒有有效對手連線');
+      return;
+    }
     const mode = String(normalizedPacket?.payload?.mode ?? '').trim().toLowerCase();
     if (mode && mode !== 'pvp') return;
     const startAt = Number(normalizedPacket?.payload?.startAt ?? Date.now());
@@ -2971,12 +4485,13 @@ function handlePvpRealtimeEvent(packet = {}) {
       return;
     }
     console.info(`[PvP Sync] 收到start_battle，進入PvP seed=${seed || 'none'}`);
-    startPreBattleCountdown({
-      source: 'remote_packet',
+    scheduleBattleStartFromBattleGo({
+      ...normalizedPacket.payload,
       startAt,
       fogDurationMs,
-      seed
-    });
+      seed,
+      matchSessionId: resolvePacketMatchSessionId(normalizedPacket)
+    }, 'remote_packet');
     return;
   }
 
@@ -2988,7 +4503,10 @@ function handlePvpRealtimeEvent(packet = {}) {
   if (type === 'skill_cast') {
     if (!isCurrentBattlePvP.value) return;
     if (currentScreen.value !== 'battle') return;
-    if (gameState.value === 'gameResult') return;
+    if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+      console.info('[PvP End] skill_cast ignored: battle already ended');
+      return;
+    }
     handleSkillCast(normalizedPacket?.payload ?? {}, normalizedPacket?._sourcePlayerId ?? '');
     return;
   }
@@ -2996,7 +4514,10 @@ function handlePvpRealtimeEvent(packet = {}) {
   if (type === 'damage') {
     if (!isCurrentBattlePvP.value) return;
     if (currentScreen.value !== 'battle') return;
-    if (gameState.value === 'gameResult') return;
+    if (isPvpTerminalState() || gameState.value === 'gameResult' || gameState.value === 'finishing') {
+      console.info('[PvP End] damage ignored: battle already ended');
+      return;
+    }
     const amount = Math.max(0, Number(normalizedPacket?.payload?.amount ?? 0));
     if (amount <= 0) return;
     const source = String(normalizedPacket?.payload?.source ?? '').trim();
@@ -3007,8 +4528,20 @@ function handlePvpRealtimeEvent(packet = {}) {
   }
 
   if (type === 'battle_end') {
-    if (!isCurrentBattlePvP.value) return;
-    if (currentScreen.value !== 'battle') return;
+    const incomingSessionId = resolvePacketMatchSessionId(normalizedPacket);
+    if (isPvpTerminalState() && incomingSessionId && isRecentlyEndedMatchSession(incomingSessionId)) {
+      console.info('[PvP End] duplicate battle_end ignored after forfeit');
+      console.info('[PvP End] finalize skipped: already terminal');
+      return;
+    }
+    if (!isCurrentBattlePvP.value || currentScreen.value !== 'battle') {
+      finalizePvpBattle('battle_end_packet', {
+        phase: 'idle',
+        matchSessionId: incomingSessionId,
+        message: '對戰已結束，請重新配對。'
+      });
+      return;
+    }
     const payload = normalizedPacket?.payload ?? {};
     const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
     const hostPlayerId = String(payload?.hostPlayerId ?? '').trim();
@@ -3031,31 +4564,75 @@ function handlePvpRealtimeEvent(packet = {}) {
       if (Number.isFinite(fallbackOpponentHp)) opponentHp.value = Math.max(0, Math.round(fallbackOpponentHp));
     }
 
-    battleEndBroadcasted = true;
-    clearSkillCastSyncTimers();
-    queuedSkillCasts.length = 0;
-    queuedSkillCastIds.clear();
-    appliedSkillCastDamageIds.clear();
-    appliedSkillCastHitEventIds.clear();
-    const castToClear = activeSkillCast;
-    activeSkillCast = null;
-    awaitingLocalSkillCastAck = false;
-    statusEffectEngine?.reset?.('battle_end_packet');
-    void clearSkillAnimation('battle_end', castToClear);
-    setPaused(false);
-    if (gameState.value !== 'gameResult') {
-      gameState.value = 'gameResult';
-    }
+    const localOutcome = playerHp.value > opponentHp.value
+      ? 'win'
+      : (playerHp.value < opponentHp.value ? 'lose' : 'draw');
+    beginPvpEndSequence('battle_end_packet', {
+      phase: 'ended',
+      matchSessionId: incomingSessionId,
+      localOutcome,
+      message: '對戰已結束。'
+    });
     return;
   }
 
   if (type === 'forfeit') {
-    if (!isCurrentBattlePvP.value) return;
-    if (currentScreen.value !== 'battle') return;
-    if (gameState.value === 'gameResult') return;
-    statusEffectEngine?.reset?.('forfeit_packet');
-    resetSkillCastSyncState();
-    forceOpponentDefeat();
+    const incomingSessionId = resolvePacketMatchSessionId(normalizedPacket) || getCurrentPvpMatchSessionId();
+    if (isPvpTerminalState() && incomingSessionId && isRecentlyEndedMatchSession(incomingSessionId)) {
+      console.info(`[PvP End] duplicate end ignored session=${incomingSessionId}`);
+      console.info('[PvP End] finalize skipped: already terminal');
+      return;
+    }
+    if (isCurrentBattlePvP.value && currentScreen.value === 'battle') {
+      const localPlayerId = resolveMatchPlayerId(matchmakingStatus.localProfile);
+      const remotePlayerId = resolveMatchPlayerId(matchmakingStatus.opponentProfile);
+      const localDisplayName = resolveLocalPvpDisplayName();
+      const remoteDisplayName = String(
+        matchmakingStatus.opponentProfile?.displayName
+        || matchmakingStatus.opponentProfile?.gameCenterDisplayName
+        || '對手'
+      ).trim() || '對手';
+      const nowMs = Date.now();
+      const localIsHost = isCurrentPlayerMatchHost();
+      const hostPlayerId = localIsHost ? localPlayerId : remotePlayerId;
+      const guestPlayerId = localIsHost ? remotePlayerId : localPlayerId;
+      const hostHp = localIsHost ? playerHp.value : opponentHp.value;
+      const guestHp = localIsHost ? opponentHp.value : playerHp.value;
+      const remoteForfeitResult = {
+        reason: 'remote_forfeit',
+        winner: {
+          playerId: localPlayerId,
+          displayName: localDisplayName
+        },
+        loser: {
+          playerId: remotePlayerId,
+          displayName: remoteDisplayName
+        },
+        matchSessionId: incomingSessionId,
+        endedAtMs: nowMs,
+        hostPlayerId,
+        guestPlayerId,
+        hostHp: Math.max(0, Math.round(Number(hostHp ?? 0))),
+        guestHp: Math.max(0, Math.round(Number(guestHp ?? 0)))
+      };
+      console.info('[PvP End] remote_forfeit result created');
+      if (isCurrentPlayerMatchHost() && !battleEndBroadcasted) {
+        emitHostBattleEndPacket('remote_forfeit', { immediate: true });
+      }
+      beginPvpEndSequence('remote_forfeit', {
+        phase: 'ended',
+        matchSessionId: incomingSessionId,
+        result: remoteForfeitResult,
+        localOutcome: 'win',
+        message: '對手已投降，判定你獲勝。'
+      });
+      return;
+    }
+    finalizePvpBattle('remote_forfeit', {
+      phase: 'idle',
+      matchSessionId: incomingSessionId,
+      message: '對手已離開配對，請重新配對。'
+    });
   }
 }
 
@@ -3141,25 +4718,32 @@ function resolveBgmSceneId(screen) {
 function forfeitActivePvpBattleAndExit(destination = 'home') {
   if (currentScreen.value !== 'battle') return false;
   if (!isCurrentBattlePvP.value) return false;
-  if (gameState.value === 'gameResult') return false;
+  const isTerminalNow = isPvpTerminalState() || gameState.value === 'gameResult';
 
   resetTutorialState();
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   shouldAutoResumeBattleAfterForeground = false;
-  statusEffectEngine?.reset?.('forfeit_exit');
-  resetSkillCastSyncState();
-  void sendPvpRealtimeEvent('forfeit', { reason: 'leave_battle_screen' });
-  setPaused(false);
+  if (!isTerminalNow) {
+    console.info('[PvP UI] leave_battle_screen_after_result user_action=false');
+    void sendPvpRealtimeEvent('forfeit', { reason: 'leave_battle_screen' });
+    if (isCurrentPlayerMatchHost() && !battleEndBroadcasted) {
+      broadcastHostBattleEndNow('local_forfeit_exit');
+    }
+    finalizePvpBattle('leave_battle_screen', {
+      phase: 'idle',
+      localOutcome: 'lose',
+      message: '你已離開 PvP 對戰，視為投降。'
+    });
+  } else {
+    console.info('[PvP UI] leave_battle_screen_after_result user_action=true');
+    finalizePvpBattle('leave_battle_screen_after_result', {
+      phase: 'idle',
+      message: '對戰已結束，請重新配對。'
+    });
+  }
   stopGame();
-
-  applyMatchStatus({
-    phase: 'idle',
-    message: '你已離開 PvP 對戰，視為投降。',
-    opponentProfile: null,
-    queueSeconds: 0
-  });
-
+  setPaused(false);
   battleSessionMode.value = 'pve';
   currentScreen.value = destination;
   return true;
@@ -3170,6 +4754,9 @@ function handleAppBackground() {
   appIsInBackground = true;
 
   persistRuntimeSettingsIfReady();
+  if (remotePlayerProgressDirty && firebaseSession.uid) {
+    void flushRemotePlayerProgressSave('app_background');
+  }
 
   if (forfeitActivePvpBattleAndExit('home')) {
     return;
@@ -3244,18 +4831,7 @@ onMounted(async () => {
     });
   }
 
-  if (matchService.providerName === 'gamecenter') {
-    gameCenterStatus.value = 'checking';
-    if (gameCenterBindingEnabled.value) {
-      console.info('GameCenter auto-auth start source=app_start');
-      await ensureGameCenterAuthenticated({ source: 'app_start', interactive: true, force: true });
-    } else {
-      console.info('GameCenter auto-auth skipped: local binding disabled');
-      gameCenterStatus.value = 'unauthenticated';
-    }
-  } else {
-    gameCenterStatus.value = 'authenticated';
-  }
+  await bootstrapRemotePlayerProgressSync();
 
   const unlockAudio = () => {
     sfx.init();
@@ -3322,7 +4898,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearPendingPvpStartTimer();
+  clearPendingPvpEndFogTimer();
   clearRootCountdownTimer();
+  clearRemotePlayerProgressSaveTimer();
   statusEffectEngine?.reset?.('app_unmount');
   resetSkillCastSyncState();
   if (typeof unsubscribeMatchStatus === 'function') unsubscribeMatchStatus();
@@ -3355,9 +4933,39 @@ watch(
 );
 
 watch(
+  [gameState, currentScreen, () => pvpEndUiState.phase],
+  ([state, screen, endPhase]) => {
+    if (endPhase === 'ending_fog') {
+      if (screen !== 'battle') {
+        console.info('[PvP UI] ignored navigation to battle after result');
+        currentScreen.value = 'battle';
+        return;
+      }
+      if (state !== 'finishing') {
+        console.info('[PvP UI] battle kept as background during ending_fog');
+        gameState.value = 'finishing';
+      }
+      return;
+    }
+    if (endPhase !== 'result') return;
+    if (screen !== 'battle') {
+      console.info('[PvP UI] ignored navigation to battle after result');
+      currentScreen.value = 'battle';
+      return;
+    }
+    if (state !== 'gameResult') {
+      console.info('[PvP UI] battle view blocked: terminal result active');
+      gameState.value = 'gameResult';
+    }
+  }
+);
+
+watch(
   studyState,
   () => {
+    if (isApplyingRemotePlayerProgress) return;
     void saveStudyStateForActiveAccount();
+    queueRemotePlayerProgressSave('study_state_changed');
   },
   { deep: true }
 );
@@ -3365,7 +4973,9 @@ watch(
 watch(
   playerConfig,
   () => {
+    if (isApplyingRemotePlayerProgress) return;
     void saveStudyStateForActiveAccount();
+    queueRemotePlayerProgressSave('player_config_changed');
   },
   { deep: true }
 );
@@ -3373,7 +4983,9 @@ watch(
 watch(
   stageProgress,
   () => {
+    if (isApplyingRemotePlayerProgress) return;
     void saveStudyStateForActiveAccount();
+    queueRemotePlayerProgressSave('stage_progress_changed');
   },
   { deep: true }
 );
@@ -3382,6 +4994,10 @@ watch(
   () => getActiveProfileKey(),
   (nextKey, prevKey) => {
     if (nextKey === prevKey) return;
+    if (hasHydratedRemotePlayerProgress && firebaseSession.uid) {
+      console.info('[FirebaseSync] active profile key changed; keeping Firestore-authoritative state.');
+      return;
+    }
     void loadStudyStateForActiveAccount();
   },
   { flush: 'post' }
@@ -3449,6 +5065,7 @@ watch(
 );
 
 function startBattle() {
+  resetPvpTerminalState('start_pve_battle');
   statusEffectEngine?.reset?.('start_pve_battle');
   resetSkillCastSyncState();
   battleEndBroadcasted = false;
@@ -3462,6 +5079,12 @@ function startBattle() {
 }
 
 function startPvpBattle() {
+  if (isPvpTerminalState() || isPvpEndUiLocked()) {
+    console.info('[PvP UI] battle view blocked: terminal result active');
+    console.info('[PvP UI] ignored navigation to battle after result');
+    return;
+  }
+  resetPvpTerminalState('start_pvp_battle');
   clearPendingPvpStartTimer();
   statusEffectEngine?.reset?.('start_pvp_battle');
   resetSkillCastSyncState();
@@ -3492,6 +5115,7 @@ function startPvpBattle() {
 }
 
 function openMatchmaking() {
+  resetPvpTerminalState('open_matchmaking');
   console.info('PvP page opened, checking existing GameCenter session only');
   console.info('PvP checks existing GameCenter session');
   currentScreen.value = 'matchmaking';
@@ -3512,6 +5136,7 @@ function goSettingsFromMatchmaking() {
 }
 
 async function startPvPMatchmaking() {
+  resetPvpTerminalState('start_matchmaking');
   console.info('PvP start matchmaking clicked');
   if (isGameCenterProvider.value && !gameCenterSession.isAuthenticated) {
     console.info('PvP blocked: Game Center not authenticated');
@@ -3542,6 +5167,7 @@ async function goHomeFromMatchmaking() {
     resetPvpRealtimeState();
     await matchService.cancelMatchmaking();
   }
+  resetPvpTerminalState('go_home_from_matchmaking');
   currentScreen.value = 'home';
 }
 
@@ -3554,6 +5180,7 @@ function goHomeFromStageSelect() {
 }
 
 function goStageSelectFromResult() {
+  resetPvpTerminalState('go_stage_select_from_result');
   resetPvpRealtimeState();
   battleSessionMode.value = 'pve';
   resetTutorialState();
@@ -3566,7 +5193,18 @@ function goStageSelectFromResult() {
 }
 
 function goMatchmakingFromResult() {
+  resetPvpTerminalState('go_matchmaking_from_result');
   resetPvpRealtimeState();
+  applyMatchStatus({
+    ...matchmakingStatus,
+    phase: 'idle',
+    message: '請重新配對。',
+    errorMessage: '',
+    opponentProfile: null,
+    queueSeconds: 0,
+    expectedPlayerCount: 0,
+    connectedPlayerCount: 0
+  });
   battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;
@@ -3585,6 +5223,10 @@ function selectStageAndStart(stageId) {
 }
 
 function openBattleMenu() {
+  if (isCurrentBattlePvP.value && (isPvpEndUiLocked() || isPvpTerminalState())) {
+    console.info('[PvP UI] battle view blocked: terminal result active');
+    return;
+  }
   isBattleMenuOpen.value = true;
   battleMenuView.value = 'main';
   if (!isCurrentBattlePvP.value) {
@@ -3617,6 +5259,7 @@ function restartBattleFromMenu() {
 
 function returnToHome() {
   if (forfeitActivePvpBattleAndExit('home')) return;
+  resetPvpTerminalState('return_home');
   battleSessionMode.value = 'pve';
   resetTutorialState();
   isBattleMenuOpen.value = false;

@@ -2,6 +2,13 @@ import UIKit
 import Capacitor
 import AVFoundation
 import GameKit
+import FirebaseCore
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,6 +16,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+        let configured = FirebaseApp.app() != nil
+        print("✅ Firebase configured: \(configured)")
+#if DEBUG
+        if configured {
+            runFirebaseConnectivityDiagnostics()
+        }
+#endif
+
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -17,6 +35,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         return true
+    }
+
+    private func runFirebaseConnectivityDiagnostics() {
+#if canImport(FirebaseAuth)
+        print("ℹ️ FirebaseAuth linked.")
+#else
+        print("ℹ️ FirebaseAuth not linked.")
+#endif
+
+#if canImport(FirebaseFirestore)
+        print("ℹ️ FirebaseFirestore linked.")
+#else
+        print("ℹ️ FirebaseFirestore not linked.")
+#endif
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -61,6 +93,7 @@ class MyViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
         bridge?.registerPluginInstance(GameCenterBridgePlugin())
+        bridge?.registerPluginInstance(FirebaseBridgePlugin())
     }
 }
 
@@ -411,4 +444,311 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
             "errorMessage": message
         ])
     }
+}
+
+@objc(FirebaseBridgePlugin)
+class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
+    let identifier = "FirebaseBridgePlugin"
+    let jsName = "FirebaseBridge"
+    let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "authenticateAnonymous", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "upsertUser", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getProgress", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveProgress", returnType: CAPPluginReturnPromise)
+    ]
+
+    private let progressSchemaVersion = 1
+
+    @objc func authenticateAnonymous(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth)
+        ensureAnonymousUser { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let user):
+                    call.resolve([
+                        "uid": user.uid,
+                        "isAnonymous": user.isAnonymous,
+                        "isAuthenticated": true
+                    ])
+                case .failure(let error):
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 尚未連結。", "firebase_auth_unavailable")
+#endif
+    }
+
+    @objc func upsertUser(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        ensureAnonymousUser { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    self.performUpsertUser(call)
+                }
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 或 FirebaseFirestore 尚未連結。", "firebase_services_unavailable")
+#endif
+    }
+
+    @objc func getProgress(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        ensureAnonymousUser { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    self.performGetProgress(call)
+                }
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 或 FirebaseFirestore 尚未連結。", "firebase_services_unavailable")
+#endif
+    }
+
+    @objc func saveProgress(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        ensureAnonymousUser { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    self.performSaveProgress(call)
+                }
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 或 FirebaseFirestore 尚未連結。", "firebase_services_unavailable")
+#endif
+    }
+
+#if canImport(FirebaseAuth)
+    private func ensureAnonymousUser(completion: @escaping (Result<User, Error>) -> Void) {
+        DispatchQueue.main.async {
+            if let currentUser = Auth.auth().currentUser {
+                completion(.success(currentUser))
+                return
+            }
+            Auth.auth().signInAnonymously { authResult, error in
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+                guard let user = authResult?.user else {
+                    completion(.failure(NSError(
+                        domain: "FirebaseBridge",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Firebase 沒有回傳使用者資料。"]
+                    )))
+                    return
+                }
+                completion(.success(user))
+            }
+        }
+    }
+#endif
+
+#if canImport(FirebaseFirestore)
+    private func performUpsertUser(_ call: CAPPluginCall) {
+        guard let uid = normalizedUid(from: call) else { return }
+
+        let gameCenterPlayerId = call.getString("gameCenterPlayerId") ?? ""
+        let displayName = call.getString("displayName") ?? ""
+        let alias = call.getString("alias") ?? ""
+
+        let userRef = Firestore.firestore().collection("users").document(uid)
+        userRef.getDocument { snapshot, error in
+            if let error {
+                call.reject("讀取使用者資料失敗。", "firebase_user_read_failed", error as NSError)
+                return
+            }
+
+            var payload: [String: Any] = [
+                "uid": uid,
+                "gameCenterPlayerId": gameCenterPlayerId,
+                "displayName": displayName,
+                "alias": alias,
+                "updatedAt": FieldValue.serverTimestamp(),
+                "lastLoginAt": FieldValue.serverTimestamp()
+            ]
+            if snapshot?.exists != true {
+                payload["createdAt"] = FieldValue.serverTimestamp()
+            }
+
+            userRef.setData(payload, merge: true) { writeError in
+                if let writeError {
+                    call.reject("寫入使用者資料失敗。", "firebase_user_write_failed", writeError as NSError)
+                    return
+                }
+                call.resolve([
+                    "uid": uid,
+                    "written": true
+                ])
+            }
+        }
+    }
+
+    private func performGetProgress(_ call: CAPPluginCall) {
+        guard let uid = normalizedUid(from: call) else { return }
+        let progressRef = Firestore
+            .firestore()
+            .collection("users")
+            .document(uid)
+            .collection("progress")
+            .document("main")
+
+        progressRef.getDocument { snapshot, error in
+            if let error {
+                call.reject("讀取進度資料失敗。", "firebase_progress_read_failed", error as NSError)
+                return
+            }
+
+            guard let snapshot, snapshot.exists, let data = snapshot.data() else {
+                call.resolve([
+                    "exists": false
+                ])
+                return
+            }
+
+            call.resolve([
+                "exists": true,
+                "data": self.serializeFirestoreMap(data)
+            ])
+        }
+    }
+
+    private func performSaveProgress(_ call: CAPPluginCall) {
+        guard let uid = normalizedUid(from: call) else { return }
+        guard let rawProgress = call.getObject("progress") else {
+            call.reject("缺少 progress payload。", "firebase_progress_payload_missing")
+            return
+        }
+
+        let progress = sanitizeProgressPayload(rawProgress)
+        let progressRef = Firestore
+            .firestore()
+            .collection("users")
+            .document(uid)
+            .collection("progress")
+            .document("main")
+
+        progressRef.setData(progress, merge: true) { error in
+            if let error {
+                call.reject("寫入進度資料失敗。", "firebase_progress_write_failed", error as NSError)
+                return
+            }
+            call.resolve([
+                "uid": uid,
+                "saved": true
+            ])
+        }
+    }
+
+    private func sanitizeProgressPayload(_ raw: [String: Any]) -> [String: Any] {
+        let level = normalizeInt(raw["level"], fallback: 0)
+        let sp = normalizeInt(raw["sp"], fallback: 0)
+        let learnedSkills = normalizeStringArray(raw["learnedSkills"])
+        let equippedSkills = normalizeStringArray(raw["equippedSkills"])
+        let stats = normalizeMap(raw["stats"])
+        let stageProgress = normalizeMap(raw["stageProgress"])
+        let questionProgress = normalizeMap(raw["questionProgress"])
+        let schemaVersion = normalizeInt(raw["schemaVersion"], fallback: progressSchemaVersion)
+
+        return [
+            "level": level,
+            "sp": sp,
+            "learnedSkills": learnedSkills,
+            "equippedSkills": equippedSkills,
+            "stats": stats,
+            "stageProgress": stageProgress,
+            "questionProgress": questionProgress,
+            "schemaVersion": schemaVersion,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+    }
+
+    private func normalizedUid(from call: CAPPluginCall) -> String? {
+        let uid = String(call.getString("uid") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !uid.isEmpty { return uid }
+#if canImport(FirebaseAuth)
+        if let currentUid = Auth.auth().currentUser?.uid, !currentUid.isEmpty {
+            return currentUid
+        }
+#endif
+        call.reject("缺少 uid。", "firebase_uid_missing")
+        return nil
+    }
+
+    private func normalizeInt(_ value: Any?, fallback: Int) -> Int {
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let text = value as? String, let parsed = Int(text) {
+            return parsed
+        }
+        return fallback
+    }
+
+    private func normalizeStringArray(_ value: Any?) -> [String] {
+        guard let list = value as? [Any] else { return [] }
+        var seen = Set<String>()
+        return list.compactMap { item -> String? in
+            let text: String
+            if let raw = item as? String {
+                text = raw
+            } else if let num = item as? NSNumber {
+                text = num.stringValue
+            } else {
+                return nil
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || seen.contains(trimmed) {
+                return nil
+            }
+            seen.insert(trimmed)
+            return trimmed
+        }
+    }
+
+    private func normalizeMap(_ value: Any?) -> [String: Any] {
+        guard let map = value as? [String: Any] else { return [:] }
+        return map
+    }
+
+    private func serializeFirestoreMap(_ raw: [String: Any]) -> [String: Any] {
+        var result: [String: Any] = [:]
+        for (key, value) in raw {
+            result[key] = serializeFirestoreValue(value)
+        }
+        return result
+    }
+
+    private func serializeFirestoreValue(_ value: Any) -> Any {
+        if let timestamp = value as? Timestamp {
+            return Int64(timestamp.dateValue().timeIntervalSince1970 * 1000)
+        }
+        if let map = value as? [String: Any] {
+            return serializeFirestoreMap(map)
+        }
+        if let list = value as? [Any] {
+            return list.map { serializeFirestoreValue($0) }
+        }
+        return value
+    }
+#endif
 }
