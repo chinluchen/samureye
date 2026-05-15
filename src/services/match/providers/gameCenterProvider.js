@@ -138,6 +138,8 @@ export class GameCenterProvider {
       phase: 'auth_required',
       message: '請先到設定頁連接 Game Center。',
       queueSeconds: 0,
+      expectedPlayerCount: 0,
+      connectedPlayerCount: 0,
       localProfile: {
         id: '',
         gameCenterId: '',
@@ -235,12 +237,29 @@ export class GameCenterProvider {
   }
 
   applyNativePlayerState(payload = {}) {
+    this.state.expectedPlayerCount = Number.isFinite(Number(payload?.expectedPlayerCount))
+      ? Math.max(0, Math.floor(Number(payload.expectedPlayerCount)))
+      : this.state.expectedPlayerCount;
+    this.state.connectedPlayerCount = Number.isFinite(Number(payload?.connectedPlayerCount))
+      ? Math.max(0, Math.floor(Number(payload.connectedPlayerCount)))
+      : this.state.connectedPlayerCount;
+
+    if (payload?.state === 'connected') {
+      if (this.state.phase === 'searching' || this.state.phase === 'matched') {
+        this.emit();
+      }
+      return;
+    }
+
     if (payload?.state !== 'disconnected') return;
     if (this.state.phase === 'searching' || this.state.phase === 'matched') {
       this.stopQueueTick();
       this.state.phase = 'error';
       this.state.message = '對手已離線。';
       this.state.errorMessage = 'Game Center 連線中斷。';
+      this.state.opponentProfile = null;
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.emit();
     }
   }
@@ -256,6 +275,12 @@ export class GameCenterProvider {
       this.state.opponentProfile = payload.opponentProfile
         ? resolveOpponentProfile(payload.opponentProfile)
         : null;
+      this.state.expectedPlayerCount = Number.isFinite(Number(payload?.expectedPlayerCount))
+        ? Math.max(0, Math.floor(Number(payload.expectedPlayerCount)))
+        : this.state.expectedPlayerCount;
+      this.state.connectedPlayerCount = Number.isFinite(Number(payload?.connectedPlayerCount))
+        ? Math.max(0, Math.floor(Number(payload.connectedPlayerCount)))
+        : this.state.connectedPlayerCount;
       this.queueStartedAt = Date.now();
       this.startQueueTick();
       this.emit();
@@ -268,6 +293,12 @@ export class GameCenterProvider {
       this.state.message = payload.message || '配對成功，準備進入對戰。';
       this.state.opponentProfile = resolveOpponentProfile(payload.opponentProfile);
       this.state.errorMessage = '';
+      this.state.expectedPlayerCount = Number.isFinite(Number(payload?.expectedPlayerCount))
+        ? Math.max(0, Math.floor(Number(payload.expectedPlayerCount)))
+        : 0;
+      this.state.connectedPlayerCount = Number.isFinite(Number(payload?.connectedPlayerCount))
+        ? Math.max(0, Math.floor(Number(payload.connectedPlayerCount)))
+        : this.state.connectedPlayerCount;
       this.emit();
       return;
     }
@@ -278,6 +309,8 @@ export class GameCenterProvider {
       this.state.message = payload.message || '已取消配對。';
       this.state.errorMessage = '';
       this.state.opponentProfile = null;
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.emit();
       return;
     }
@@ -287,6 +320,9 @@ export class GameCenterProvider {
       this.state.phase = 'error';
       this.state.message = payload.message || '配對流程發生錯誤。';
       this.state.errorMessage = payload.errorMessage || '';
+      this.state.opponentProfile = null;
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.emit();
     }
   }
@@ -336,6 +372,8 @@ export class GameCenterProvider {
       this.state.phase = 'auth_required';
       this.state.message = '請先到設定頁連接 Game Center。';
       this.state.errorMessage = '';
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.state.localProfile = {
         ...this.state.localProfile,
         id: '',
@@ -348,6 +386,8 @@ export class GameCenterProvider {
       this.state.phase = 'error';
       this.state.message = '無法讀取 Game Center 狀態。';
       this.state.errorMessage = resolveErrorMessage(error, 'Bridge 呼叫失敗。');
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       return false;
     }
   }
@@ -382,6 +422,8 @@ export class GameCenterProvider {
         this.state.phase = 'auth_required';
         this.state.message = '尚未登入 Game Center。';
         this.state.errorMessage = '';
+        this.state.expectedPlayerCount = 0;
+        this.state.connectedPlayerCount = 0;
         this.emit();
         return;
       }
@@ -390,18 +432,24 @@ export class GameCenterProvider {
       this.state.phase = 'idle';
       this.state.message = '已連線 Game Center，可開始配對。';
       this.state.errorMessage = '';
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.emit();
     } catch (error) {
       if (isCancelledError(error)) {
         this.state.phase = 'auth_required';
         this.state.message = '已取消 Game Center 登入。';
         this.state.errorMessage = '';
+        this.state.expectedPlayerCount = 0;
+        this.state.connectedPlayerCount = 0;
         this.emit();
         return;
       }
       this.state.phase = 'error';
       this.state.message = 'Game Center 登入失敗。';
       this.state.errorMessage = resolveErrorMessage(error, '請確認 iOS 裝置已登入 Game Center。');
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
       this.emit();
     }
   }
@@ -429,6 +477,8 @@ export class GameCenterProvider {
     this.state.message = '正在搜尋對手...';
     this.state.errorMessage = '';
     this.state.opponentProfile = null;
+    this.state.expectedPlayerCount = 1;
+    this.state.connectedPlayerCount = 0;
     this.queueStartedAt = Date.now();
     this.startQueueTick();
     this.emit();
@@ -445,11 +495,15 @@ export class GameCenterProvider {
       this.state.message = '配對成功，準備進入對戰。';
       this.state.opponentProfile = resolveOpponentProfile(result?.opponentProfile);
       this.state.errorMessage = '';
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 1;
       this.emit();
     } catch (error) {
       if (token !== this.matchRequestToken) return;
       this.stopQueueTick();
       this.state.opponentProfile = null;
+      this.state.expectedPlayerCount = 0;
+      this.state.connectedPlayerCount = 0;
 
       if (isCancelledError(error)) {
         this.state.phase = 'idle';
@@ -473,6 +527,8 @@ export class GameCenterProvider {
     this.state.message = '已取消配對。';
     this.state.errorMessage = '';
     this.state.opponentProfile = null;
+    this.state.expectedPlayerCount = 0;
+    this.state.connectedPlayerCount = 0;
     this.emit();
 
     try {
