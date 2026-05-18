@@ -3,8 +3,14 @@
     id="app-shell"
     :class="{ 'is-finishing': currentScreen === 'battle' && gameState === 'finishing' }"
   >
+    <IntroOpeningScreen
+      v-if="currentScreen === 'introOpening'"
+      @skip="enterHomeFromIntro"
+      @complete="enterHomeFromIntro"
+    />
+
     <HomeScreen
-      v-if="currentScreen === 'home'"
+      v-else-if="currentScreen === 'home'"
       :is-skill-loadout-unlocked="isSkillLoadoutUnlocked"
       @open-stage-select="openStageSelect"
       @open-study="openStudy"
@@ -259,8 +265,9 @@ import SkillLoadoutScreen from './components/SkillLoadoutScreen.vue';
 import StageSelectScreen from './components/StageSelectScreen.vue';
 import LeaderboardScreen from './components/LeaderboardScreen.vue';
 import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
+import IntroOpeningScreen from './components/IntroOpeningScreen.vue';
 
-const currentScreen = ref('home');
+const currentScreen = ref('introOpening');
 const isBattleMenuOpen = ref(false);
 const battleMenuView = ref('main');
 const battleSessionMode = ref('pve');
@@ -5176,6 +5183,10 @@ function openStageSelect() {
 }
 
 function goHomeFromStageSelect() {
+  currentScreen.value = 'home';
+}
+
+function enterHomeFromIntro() {
   currentScreen.value = 'home';
 }
 
