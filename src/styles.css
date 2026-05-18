@@ -303,7 +303,8 @@ button {
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 1rem;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background-image:
     linear-gradient(160deg, rgba(14, 23, 52, 0.44) 0%, rgba(21, 38, 79, 0.38) 100%),
     var(--scene-bg-image);
@@ -393,6 +394,12 @@ button {
   background: #e5e7eb;
   color: #666;
   box-shadow: none;
+}
+
+.home-primary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
 }
 
 .home-menu-grid {
@@ -517,6 +524,191 @@ button {
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   pointer-events: none;
   z-index: 0;
+}
+
+.dojo-info-card {
+  gap: 8px;
+}
+
+.dojo-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dojo-info-label {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #475569;
+}
+
+.dojo-info-value {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.dojo-info-status {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+
+.dojo-info-status.is-capped {
+  color: #92400e;
+}
+
+.dojo-mode-panel {
+  margin-top: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.dojo-menu-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dojo-start-btn {
+  grid-column: 1 / -1;
+  min-height: 52px;
+}
+
+.dojo-mode-button {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.dojo-mode-button-selected {
+  border-color: #0f172a;
+  box-shadow: 0 10px 22px rgba(7, 13, 28, 0.3), 3px 3px 0 rgba(7, 13, 28, 0.72);
+}
+
+.dojo-mode-button-locked {
+  color: #64748b;
+  filter: grayscale(0.35);
+  background: linear-gradient(150deg, rgba(219, 228, 242, 0.72) 0%, rgba(197, 210, 230, 0.68) 100%);
+}
+
+.dojo-mode-lock {
+  font-size: 0.98rem;
+  line-height: 1;
+}
+
+.dojo-mode-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #334155;
+}
+
+.dojo-quiz-card {
+  min-height: 0;
+  align-content: start;
+  align-self: start;
+}
+
+.dojo-question-subtopic {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #475569;
+}
+
+.dojo-round-score {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.dojo-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+}
+
+.dojo-summary-label,
+.dojo-summary-value {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.dojo-summary-label {
+  font-weight: 800;
+  color: #475569;
+}
+
+.dojo-summary-value {
+  font-weight: 900;
+  color: #0f172a;
+  text-align: right;
+}
+
+.dojo-review-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dojo-review-item {
+  border: 2px solid var(--menu-border-ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.6);
+  display: grid;
+  gap: 4px;
+}
+
+.dojo-review-title,
+.dojo-review-question,
+.dojo-review-line,
+.dojo-review-explanation {
+  margin: 0;
+}
+
+.dojo-review-title {
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: #334155;
+}
+
+.dojo-review-question {
+  font-size: 0.86rem;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dojo-review-line {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #475569;
+}
+
+.dojo-review-line.correct {
+  color: #166534;
+}
+
+.dojo-review-line.wrong {
+  color: #991b1b;
+}
+
+.dojo-review-explanation {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  font-weight: 700;
+  color: #334155;
 }
 
 .settings-screen {
@@ -1086,8 +1278,9 @@ button {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-rows: 1fr auto;
   gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .study-subhome {
@@ -1202,6 +1395,11 @@ button {
   text-align: left;
   padding: 8px 10px;
   pointer-events: auto;
+}
+
+.study-option-btn.selected {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.18) inset;
 }
 
 .study-option-btn.correct {

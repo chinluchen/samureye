@@ -1,0 +1,902 @@
+[
+  {
+    "id": "BASIC_LIFE_001",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "長時間滑手機後眼睛覺得乾澀，最適合先做哪一件事？",
+    "options": [
+      "繼續滑，讓眼睛習慣",
+      "休息一下、眨眨眼、看遠方",
+      "把手機拿更近一點",
+      "把螢幕亮度開到最亮"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "長時間近距離用眼容易讓眨眼變少，適度休息與看遠方有助於減少不適。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_002",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "以下哪一種用眼習慣最容易讓眼睛疲勞？",
+    "options": [
+      "每隔一段時間休息",
+      "在光線不足處長時間看手機",
+      "保持適當距離閱讀",
+      "眨眼並讓眼睛短暫休息"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "光線不足時長時間近距離用眼，容易增加視覺負擔。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_003",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "螢幕使用",
+    "question": "使用電腦時，螢幕位置通常建議怎麼放比較舒適？",
+    "options": [
+      "離眼睛非常近",
+      "略低於眼睛平視高度，保持適當距離",
+      "放在頭頂正上方",
+      "越斜越好，才有運動感"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "螢幕保持適當距離與較舒適角度，有助於減少頸部與眼睛負擔。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_004",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡髒了，以下哪一種清潔方式比較適合？",
+    "options": [
+      "用衣服乾擦",
+      "用砂紙拋光",
+      "用清水沖洗後搭配鏡布擦拭",
+      "用指甲刮掉髒污"
+    ],
+    "answerIndex": 2,
+    "difficulty": 1,
+    "explanation": "鏡片有灰塵時直接乾擦可能刮傷，先沖掉顆粒再擦比較安全。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_005",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "把眼鏡長時間放在汽車前擋風玻璃下，最可能造成什麼問題？",
+    "options": [
+      "鏡片自動升級",
+      "鏡架或鏡片鍍膜受高溫影響",
+      "度數變成0度",
+      "眼鏡會自己變乾淨"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "高溫環境可能影響鏡架材質與鏡片鍍膜，不建議長時間放在車內曝曬處。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_006",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡戴起來一直往下滑，最適合怎麼做？",
+    "options": [
+      "一直用手推，當作手部運動",
+      "請眼鏡行協助調整鏡架",
+      "把鏡腳折斷重裝",
+      "用膠帶黏在臉上"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "眼鏡容易滑落通常與鼻墊、鏡腳或配戴角度有關，可請專業人員調整。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_007",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "鏡片有鍍膜時，以下哪一種習慣較不建議？",
+    "options": [
+      "用專用鏡布擦拭",
+      "避免高溫曝曬",
+      "用清水沖掉灰塵",
+      "用粗糙衛生紙大力乾擦"
+    ],
+    "answerIndex": 3,
+    "difficulty": 1,
+    "explanation": "粗糙材質或大力乾擦可能增加鏡片刮傷與鍍膜受損風險。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_008",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "配戴感受",
+    "question": "新眼鏡剛戴時有些微不適，最合理的做法是？",
+    "options": [
+      "立刻丟掉",
+      "觀察適應狀況，若持續不適再回店檢查",
+      "忍一輩子",
+      "把鏡片拔下來自己換"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "新眼鏡可能需要短暫適應，但若持續頭暈、模糊或不舒服，應回店確認。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_009",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "配戴感受",
+    "question": "戴眼鏡看遠清楚，但看近距離手機很吃力，最適合怎麼做？",
+    "options": [
+      "繼續忍耐",
+      "找專業人員檢查視力與眼鏡狀況",
+      "把手機放到鼻子上",
+      "把鏡片塗黑"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "看遠與看近需求不同，若看近吃力應檢查視力、度數或用眼狀況。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_010",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "看書或滑手機時，距離太近最可能增加哪一種負擔？",
+    "options": [
+      "腿部負擔",
+      "近距離用眼負擔",
+      "聽力負擔",
+      "味覺負擔"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "距離過近會增加近距離用眼負擔，建議保持合適閱讀距離。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_011",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "隱形眼鏡",
+    "question": "戴隱形眼鏡前最應該先做什麼？",
+    "options": [
+      "先洗手",
+      "先吃宵夜",
+      "先把鏡片放進口袋",
+      "先把眼睛閉起來亂摸"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "配戴隱形眼鏡前洗手，有助於降低髒污與感染風險。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_012",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "隱形眼鏡",
+    "question": "隱形眼鏡戴起來突然很痛，最適合的處理是？",
+    "options": [
+      "硬撐到晚上",
+      "先取下鏡片並檢查，必要時就醫或詢問專業人員",
+      "用力揉眼睛",
+      "把另一眼也戴上就平衡了"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "突然疼痛可能與異物、鏡片破損或眼部狀況有關，不建議硬撐或揉眼。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_013",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "隱形眼鏡",
+    "question": "戴隱形眼鏡睡覺通常為什麼不建議？",
+    "options": [
+      "會夢到驗光師",
+      "可能增加角膜缺氧或感染風險",
+      "度數會自動消失",
+      "眼睛會變成藍色"
+    ],
+    "answerIndex": 1,
+    "difficulty": 2,
+    "explanation": "一般隱形眼鏡不建議戴著睡覺，除非是專業指示下適合的產品。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_014",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "隱形眼鏡",
+    "question": "隱形眼鏡保存液最不應該怎麼使用？",
+    "options": [
+      "依照保存液說明使用",
+      "定期更換新鮮保存液",
+      "重複使用昨天用過的保存液",
+      "確認瓶口避免污染"
+    ],
+    "answerIndex": 2,
+    "difficulty": 1,
+    "explanation": "保存液重複使用可能降低清潔效果並增加污染風險。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_015",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "隱形眼鏡",
+    "question": "游泳時戴一般隱形眼鏡，主要疑慮是什麼？",
+    "options": [
+      "泳池水可能污染鏡片與眼睛",
+      "游泳速度太快",
+      "鏡片會幫忙導航",
+      "會自動變成蛙鏡"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "水中微生物或污染物可能附著鏡片，增加眼部感染風險。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_016",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "乾眼與不適",
+    "question": "覺得眼睛乾澀時，以下哪個做法較合理？",
+    "options": [
+      "增加休息與眨眼，必要時詢問專業人員",
+      "用手大力揉眼睛",
+      "一直盯著冷氣出風口",
+      "把眼睛撐大讓風進去"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "乾澀時可先減少刺激、增加休息；若常發生或嚴重不適，應諮詢專業人員。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_017",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "乾眼與不適",
+    "question": "眼睛癢時一直揉眼睛，可能造成什麼問題？",
+    "options": [
+      "眼睛會自動變大",
+      "可能刺激眼表或造成不適加重",
+      "可以把近視揉掉",
+      "會增加攻擊力"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "揉眼可能刺激眼表，若有過敏或異物感應找原因處理。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_018",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "螢幕使用",
+    "question": "使用手機時，哪個做法比較有助於減少眼睛負擔？",
+    "options": [
+      "在黑暗中把亮度開最大",
+      "保持適當距離與環境光線",
+      "把字體調到看不見",
+      "躺著讓手機貼著臉"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "適當距離、字體大小與環境光線能降低用眼負擔。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_019",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "螢幕使用",
+    "question": "一直盯著螢幕時，眨眼次數通常會怎樣？",
+    "options": [
+      "可能變少",
+      "一定變多十倍",
+      "完全不變",
+      "變成自動拍照模式"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "專注看螢幕時眨眼可能減少，因此較容易覺得乾澀。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_020",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "視力檢查",
+    "question": "視力變模糊時，最適合的做法是？",
+    "options": [
+      "自己亂買度數",
+      "找專業人員檢查原因",
+      "把螢幕亮度開到爆",
+      "只要睡覺就一定完全恢復"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "視力模糊可能有多種原因，應透過專業檢查確認。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_021",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "視力檢查",
+    "question": "為什麼不建議只用網路測驗判斷自己的眼鏡度數？",
+    "options": [
+      "因為網路不能顯示字",
+      "螢幕距離、大小、亮度與測量條件不穩定",
+      "因為眼鏡會生氣",
+      "因為手機會偷改答案"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "網路測驗無法取代完整驗光與眼部檢查，只能作為初步參考。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_022",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "視力檢查",
+    "question": "驗光時，為什麼要誠實回答看起來清不清楚？",
+    "options": [
+      "因為答案會影響度數判斷",
+      "因為驗光師會讀心術",
+      "因為越亂答越容易中獎",
+      "因為沉默可以省錢"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "主觀驗光需要患者配合回答，回覆會影響最後判斷。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_023",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡一邊高一邊低時，最適合怎麼做？",
+    "options": [
+      "請眼鏡行調整鏡架",
+      "自己用火烤一烤",
+      "拿石頭壓平",
+      "戴歪一點適應人生"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "眼鏡歪斜可能影響舒適與視線，可請眼鏡行協助調整。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_024",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "鏡片刮傷後，最合理的說法是？",
+    "options": [
+      "刮傷通常無法用擦拭恢復原狀",
+      "用力擦就會復原",
+      "放冰箱一晚會修好",
+      "刮痕會自動長回去"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "鏡片刮傷通常是物理性損傷，難以靠擦拭恢復。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_025",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡鏡腳太緊，壓到耳朵或太陽穴，最適合怎麼做？",
+    "options": [
+      "請眼鏡行協助調整鬆緊",
+      "剪掉鏡腳",
+      "忍到變強者",
+      "用膠水黏在頭上"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "鏡腳過緊會造成不適，可透過調整改善配戴感。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_026",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "太陽眼鏡",
+    "question": "選太陽眼鏡時，除了顏色好看，也應注意什麼？",
+    "options": [
+      "是否具備合適的紫外線防護",
+      "是不是越黑越安全",
+      "是不是越便宜越能防曬",
+      "有沒有讓人看起來像主角"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "太陽眼鏡應注意紫外線防護，鏡片顏色深淺不等於防護能力。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_027",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "太陽眼鏡",
+    "question": "鏡片顏色越深，一定代表防UV越好嗎？",
+    "options": [
+      "不一定",
+      "一定是",
+      "只要黑色就無敵",
+      "只有晚上有效"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "防UV能力需看鏡片是否具備紫外線防護，不能只看顏色深淺。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_028",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "兒童用眼",
+    "question": "小孩長時間近距離用眼時，家長最適合注意什麼？",
+    "options": [
+      "休息時間、閱讀距離與戶外活動",
+      "讓小孩越近看越專心",
+      "只要吃紅蘿蔔就不用管",
+      "把燈全部關掉訓練眼力"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "兒童用眼需注意距離、休息與戶外活動，若視力有疑慮應檢查。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_029",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "兒童用眼",
+    "question": "孩子常瞇眼看黑板，最合理的處理是？",
+    "options": [
+      "安排視力檢查",
+      "叫他意志力看清楚",
+      "把黑板想像成大電視",
+      "讓他坐最後一排訓練視力"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "瞇眼看遠可能與視力問題有關，建議安排檢查確認。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_030",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "兒童用眼",
+    "question": "以下哪一項較有助於兒童視力健康管理？",
+    "options": [
+      "定期視力檢查與良好用眼習慣",
+      "完全不出門",
+      "每天在黑暗中看書",
+      "只要不戴眼鏡就不會近視"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "兒童視力管理需要定期檢查、良好用眼習慣與適當戶外活動。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_031",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "配戴感受",
+    "question": "戴新眼鏡走樓梯覺得高度怪怪的，最適合怎麼做？",
+    "options": [
+      "先小心行走並觀察適應狀況，若持續不適回店確認",
+      "立刻跑百米測試",
+      "閉眼走比較勇敢",
+      "把眼鏡反過來戴"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "新眼鏡可能有短暫空間感適應問題，若不適明顯或持續應回店確認。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_032",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "配戴感受",
+    "question": "眼鏡戴上後一邊清楚、一邊模糊，最適合怎麼做？",
+    "options": [
+      "回店或找專業人員確認度數與鏡片",
+      "把模糊那眼閉起來就好",
+      "用力敲鏡片",
+      "把眼鏡戴到額頭上"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "單眼模糊可能與度數、鏡片、配戴位置或眼睛狀況有關，應確認原因。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_033",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼睛症狀",
+    "question": "眼睛紅、痛又怕光時，最適合怎麼做？",
+    "options": [
+      "盡快尋求眼科或專業醫療協助",
+      "繼續戴隱形眼鏡撐過去",
+      "用手一直揉",
+      "看恐怖片轉移注意力"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "紅、痛、畏光可能是需要醫療評估的警訊，不應自行硬撐。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_034",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼睛症狀",
+    "question": "突然出現大量飛蚊或閃光感時，較適合怎麼做？",
+    "options": [
+      "盡快安排眼科檢查",
+      "睡一覺一定沒事",
+      "把眼睛轉一百圈",
+      "用手機手電筒照眼睛"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "突然大量飛蚊或閃光感可能需要眼科檢查，尤其伴隨視野異常時。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_035",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "配眼鏡時，為什麼要確認用途？",
+    "options": [
+      "不同用途可能需要不同設計或度數考量",
+      "因為眼鏡會挑工作",
+      "因為老闆想聊天",
+      "因為用途會改變臉型"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "看遠、看近、電腦、開車等需求不同，眼鏡設計可能也不同。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_036",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "螢幕使用",
+    "question": "夜間使用手機時，以下哪一種做法比較合理？",
+    "options": [
+      "避免環境太暗，調整亮度與使用時間",
+      "把手機亮度開到最刺眼",
+      "關燈貼著眼睛看",
+      "看到眼睛痠才算完成任務"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "夜間使用螢幕應注意環境光線、亮度與時間，減少眼睛不適。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_037",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡不戴時，較建議怎麼收納？",
+    "options": [
+      "放入眼鏡盒",
+      "直接丟進背包跟鑰匙混戰",
+      "鏡片朝下放桌上",
+      "放在椅子上測試運氣"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "眼鏡盒可減少壓傷、刮傷與變形風險。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_038",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "鏡片常常沾指紋，最可能的原因之一是？",
+    "options": [
+      "拿眼鏡時碰到鏡片表面",
+      "眼鏡自己偷吃洋芋片",
+      "度數太高吸引指紋",
+      "鏡框想換主人"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "拿取眼鏡時應盡量握鏡框，減少碰觸鏡片表面。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_039",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "如果眼鏡螺絲鬆了，最適合怎麼處理？",
+    "options": [
+      "請眼鏡行協助鎖緊或檢查",
+      "用牙齒咬緊",
+      "用力甩一甩",
+      "把另一邊也弄鬆保持平衡"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "螺絲鬆動可能導致鏡片或鏡腳脫落，建議請店家協助。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_040",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "看遠方時比看近距離更放鬆，主要是因為？",
+    "options": [
+      "近距離通常需要較多調節與集合需求",
+      "遠方會發出治療光線",
+      "近距離會啟動魔王",
+      "看遠方可以自動升級度數"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "近距離用眼通常需要眼睛進行較多調節與雙眼協調，因此容易疲勞。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_041",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "為什麼不建議隨便戴別人的度數眼鏡？",
+    "options": [
+      "度數與瞳距等條件可能不適合自己",
+      "因為眼鏡會認主人",
+      "因為會偷走別人的視力",
+      "因為會觸發副本"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "每個人的度數、瞳距與配戴需求不同，不建議隨便借戴。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_042",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "配戴感受",
+    "question": "眼鏡戴起來鼻樑很痛，最合理的做法是？",
+    "options": [
+      "請眼鏡行調整鼻墊或配戴位置",
+      "用衛生紙永遠墊著",
+      "忍耐到鼻子升級",
+      "把眼鏡掛在耳朵下面"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "鼻墊位置或壓力不適可透過調整改善。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_043",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼睛症狀",
+    "question": "眼睛進異物時，較不建議的做法是？",
+    "options": [
+      "用力揉眼睛",
+      "用乾淨清水沖洗",
+      "避免繼續刺激",
+      "必要時尋求醫療協助"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "用力揉眼可能刮傷眼表或讓異物造成更多刺激。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_044",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "眼鏡戴久了突然常頭暈，較合理的做法是？",
+    "options": [
+      "檢查眼鏡、度數與身體狀況",
+      "把鏡片敲成更薄",
+      "把眼鏡戴到後腦勺",
+      "每天轉圈訓練抗暈"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "頭暈可能與度數、鏡架位置、雙眼協調或其他因素有關，應確認原因。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_045",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "以下哪個習慣比較可能幫助減少長時間近距離用眼的不適？",
+    "options": [
+      "定時休息、變換焦距",
+      "一口氣看六小時不眨眼",
+      "躲在棉被裡看手機",
+      "把字縮到最小挑戰自己"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "定時休息與看遠方能讓眼睛暫時放鬆。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_046",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "如果眼鏡鏡片一直起霧，以下哪個做法較合理？",
+    "options": [
+      "使用合適防霧產品或調整口罩貼合度",
+      "用沙拉油塗滿鏡片",
+      "把鏡片拔掉",
+      "戴著起霧裝神秘"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "鏡片起霧常與溫差與口罩氣流有關，可用防霧產品或調整配戴方式改善。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_047",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "視力檢查",
+    "question": "定期視力檢查的主要好處是什麼？",
+    "options": [
+      "早點發現視力或眼睛狀況變化",
+      "可以讓眼鏡長高",
+      "可以保證永遠不用戴眼鏡",
+      "可以把手機變清楚"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "定期檢查有助於掌握視力變化與配戴需求。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_048",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "螢幕使用",
+    "question": "長時間打電腦時，除了眼睛疲勞，也可能出現什麼不適？",
+    "options": [
+      "肩頸痠痛",
+      "頭髮自動變色",
+      "鞋子度數增加",
+      "鍵盤長出眼睛"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "長時間使用電腦也可能造成姿勢相關的肩頸不適。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_049",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "眼鏡常識",
+    "question": "如果眼鏡度數不合，可能出現哪些狀況？",
+    "options": [
+      "模糊、疲勞、頭暈或不舒服",
+      "自動變聰明",
+      "眼睛變成雷射",
+      "睡覺時會發光"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "不合適的度數可能造成視覺不適，應找專業人員確認。",
+    "source": "自製題目",
+    "enabled": true
+  },
+  {
+    "id": "BASIC_LIFE_050",
+    "category": "basic_life",
+    "mode": "護眼新手村",
+    "subtopic": "用眼習慣",
+    "question": "以下哪一句最符合健康用眼的概念？",
+    "options": [
+      "眼睛不舒服就一直撐",
+      "用眼要有休息，異常不適要檢查",
+      "越暗看越能訓練眼力",
+      "眼鏡越髒越有故事感"
+    ],
+    "answerIndex": 1,
+    "difficulty": 1,
+    "explanation": "健康用眼重點是適度休息、良好環境與有異常時尋求檢查。",
+    "source": "自製題目",
+    "enabled": true
+  }
+]

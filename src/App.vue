@@ -142,10 +142,9 @@
       v-else-if="currentScreen === 'study'"
       :state="studyState"
       :unlocked-track-keys="unlockedTrackKeys"
+      :on-settle-reward="claimKnowledgePointReward"
       @back-home="goHomeFromStudy"
-      @add-knowledge-points="addStudyKnowledgePoints"
       @record-answer="recordStudyAnswer"
-      @upgrade-track="upgradeTrack"
     />
 
     <SettingsScreen
@@ -231,6 +230,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { GAME_CONFIG } from './data/gameConfig.js';
 import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
+import { DOJO_DAILY_CAP_POINTS } from './data/dojoQuestionBanks.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
 import { buildHostAuthoritativeSkillCast, resolveSkillEffectType, resolveSkillTargetRule } from './engines/SkillEngine.js';
@@ -246,6 +246,8 @@ import { createMatchService } from './services/match/MatchService.js';
 import { appStorage } from './services/storage/preferencesStorage.js';
 import {
   authenticateFirebaseAnonymous,
+  claimFirebaseKnowledgePointReward,
+  getFirebasePlayerKnowledge,
   getFirebasePlayerProgress,
   isFirebaseBridgeAvailable,
   saveFirebasePlayerProgress,
@@ -465,6 +467,10 @@ const studyState = reactive({
   knowledgePoints: 0,
   answered: 0,
   correct: 0,
+  dailyKnowledge: {
+    dateKey: '',
+    points: 0
+  },
   tracks: {
     optometry: { level: 0, answered: 0, correct: 0 },
     optics: { level: 0, answered: 0, correct: 0 },
@@ -488,7 +494,7 @@ const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
 let hasHydratedGameCenterSession = false;
-let hasHydratedRemotePlayerProgress = false;
+let isFirebaseHydrated = false;
 let gameCenterAuthPromise = null;
 let isApplyingRemotePlayerProgress = false;
 let remotePlayerProgressSaveTimer = null;
@@ -1003,11 +1009,43 @@ function normalizeTrack(rawTrack = {}) {
   };
 }
 
+function getStudyDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDailyKnowledge(rawDaily = {}, fallbackDateKey = getStudyDateKey()) {
+  const data = rawDaily ?? {};
+  const rawDate = String(data.dateKey ?? '').trim();
+  const dateKey = rawDate || fallbackDateKey;
+  const points = Math.max(0, Math.floor(sanitizeNumber(data.points, 0)));
+  return {
+    dateKey,
+    points: Math.min(DOJO_DAILY_CAP_POINTS, points)
+  };
+}
+
+function syncStudyDailyKnowledgeDate() {
+  const today = getStudyDateKey();
+  if (studyState.dailyKnowledge.dateKey === today) return;
+  studyState.dailyKnowledge = {
+    dateKey: today,
+    points: 0
+  };
+}
+
 function buildDefaultStudyData() {
+  const today = getStudyDateKey();
   return {
     knowledgePoints: 0,
     answered: 0,
     correct: 0,
+    dailyKnowledge: {
+      dateKey: today,
+      points: 0
+    },
     tracks: {
       optometry: { level: 0, answered: 0, correct: 0 },
       optics: { level: 0, answered: 0, correct: 0 },
@@ -1027,6 +1065,10 @@ function buildDefaultStudyData() {
 function normalizeStudyData(rawData = {}) {
   const data = rawData ?? {};
   const tracks = data.tracks ?? {};
+  const fallbackDaily =
+    data.dailyKnowledge && typeof data.dailyKnowledge === 'object'
+      ? data.dailyKnowledge
+      : data.dailyStats;
   const rawPlayerConfig = data.playerConfig ?? {};
   const rawStageProgress = data.stageProgress ?? {};
   const dedupedSkillIds = buildFilledSkillIds(rawPlayerConfig.equippedSkillIds);
@@ -1040,6 +1082,7 @@ function normalizeStudyData(rawData = {}) {
     knowledgePoints: Math.max(0, Math.floor(sanitizeNumber(data.knowledgePoints, data.points ?? 0))),
     answered: Math.max(0, Math.floor(sanitizeNumber(data.answered, 0))),
     correct: Math.max(0, Math.floor(sanitizeNumber(data.correct, 0))),
+    dailyKnowledge: normalizeDailyKnowledge(fallbackDaily, getStudyDateKey()),
     tracks: {
       optometry: normalizeTrack(tracks.optometry),
       optics: normalizeTrack(tracks.optics),
@@ -1061,6 +1104,7 @@ function applyStudyData(nextData) {
   studyState.knowledgePoints = data.knowledgePoints;
   studyState.answered = data.answered;
   studyState.correct = data.correct;
+  studyState.dailyKnowledge = data.dailyKnowledge;
   studyState.tracks.optometry = data.tracks.optometry;
   studyState.tracks.optics = data.tracks.optics;
   studyState.tracks.contactLens = data.tracks.contactLens;
@@ -1068,13 +1112,16 @@ function applyStudyData(nextData) {
   playerConfig.characterId = data.playerConfig.characterId;
   playerConfig.equippedSkillIds = data.playerConfig.equippedSkillIds;
   stageProgress.clearedStageIds = data.stageProgress.clearedStageIds;
+  syncStudyDailyKnowledgeDate();
 }
 
 function snapshotStudyData() {
+  syncStudyDailyKnowledgeDate();
   return {
     knowledgePoints: studyState.knowledgePoints,
     answered: studyState.answered,
     correct: studyState.correct,
+    dailyKnowledge: studyState.dailyKnowledge,
     tracks: {
       optometry: studyState.tracks.optometry,
       optics: studyState.tracks.optics,
@@ -1358,7 +1405,9 @@ function buildRemoteProgressPayloadFromLocalState() {
       characterId: normalized.playerConfig.characterId,
       trackLevels,
       answered: normalized.answered,
-      correct: normalized.correct
+      correct: normalized.correct,
+      dailyKnowledgePointsEarned: normalized.dailyKnowledge.points,
+      dailyKnowledgePointsDate: normalized.dailyKnowledge.dateKey
     },
     stageProgress: {
       clearedStageIds: normalized.stageProgress.clearedStageIds
@@ -1384,7 +1433,9 @@ function buildDefaultRemoteProgressPayload() {
       characterId: defaults.playerConfig.characterId,
       trackLevels,
       answered: 0,
-      correct: 0
+      correct: 0,
+      dailyKnowledgePointsEarned: defaults.dailyKnowledge.points,
+      dailyKnowledgePointsDate: defaults.dailyKnowledge.dateKey
     },
     stageProgress: {
       clearedStageIds: []
@@ -1401,7 +1452,7 @@ function buildDefaultRemoteProgressPayload() {
 function buildStudyDataFromRemoteProgress(rawProgress = {}) {
   const progress = normalizeRemoteProgressPayload(rawProgress);
   return normalizeStudyData({
-    knowledgePoints: progress.sp,
+    knowledgePoints: studyState.knowledgePoints,
     answered: progress.questionProgress.answered,
     correct: progress.questionProgress.correct,
     tracks: progress.questionProgress.tracks,
@@ -1413,6 +1464,29 @@ function buildStudyDataFromRemoteProgress(rawProgress = {}) {
       clearedStageIds: progress.stageProgress.clearedStageIds
     }
   });
+}
+
+function normalizePlayerKnowledgeForToday(rawData = {}, today = getStudyDateKey()) {
+  const data = rawData && typeof rawData === 'object' ? rawData : {};
+  const knowledgePoints = Math.max(0, Math.floor(sanitizeNumber(data.knowledgePoints, studyState.knowledgePoints)));
+  const dateKey = String(data.dailyKnowledgePointsDate ?? '').trim();
+  const dailyEarnedRaw = Math.max(0, Math.floor(sanitizeNumber(data.dailyKnowledgePointsEarned, 0)));
+  const localDailyDate = String(studyState.dailyKnowledge?.dateKey ?? '').trim();
+  const localDailyPoints = Math.max(0, Math.floor(sanitizeNumber(studyState.dailyKnowledge?.points, 0)));
+  const localDailyEarnedFallback = localDailyDate === today
+    ? Math.min(DOJO_DAILY_CAP_POINTS, localDailyPoints)
+    : 0;
+  const dailyEarned = dateKey === today
+    ? Math.min(DOJO_DAILY_CAP_POINTS, dailyEarnedRaw)
+    : (dateKey ? 0 : localDailyEarnedFallback);
+  return {
+    knowledgePoints,
+    dailyKnowledge: {
+      dateKey: today,
+      points: dailyEarned
+    },
+    firestoreDateKey: dateKey || today
+  };
 }
 
 function resolveGameCenterIdentityForUserDocument() {
@@ -1429,8 +1503,38 @@ function clearRemotePlayerProgressSaveTimer() {
   remotePlayerProgressSaveTimer = null;
 }
 
+function removeProtectedProgressFields(rawPayload = {}) {
+  const payload = rawPayload && typeof rawPayload === 'object' ? { ...rawPayload } : {};
+  const containsKnowledgePoints = Object.prototype.hasOwnProperty.call(payload, 'knowledgePoints');
+  const containsDailyKnowledgePointsEarned = Object.prototype.hasOwnProperty.call(payload, 'dailyKnowledgePointsEarned');
+  const containsDailyKnowledgePointsDate = Object.prototype.hasOwnProperty.call(payload, 'dailyKnowledgePointsDate');
+  const containsProtectedFields = containsKnowledgePoints || containsDailyKnowledgePointsEarned || containsDailyKnowledgePointsDate;
+
+  if (containsProtectedFields) {
+    console.warn('[FirebaseSync] WARNING saveProgress payload contains protected fields');
+    console.warn(`containsKnowledgePoints=${String(containsKnowledgePoints)}`);
+    console.warn(`containsDailyKnowledgePointsEarned=${String(containsDailyKnowledgePointsEarned)}`);
+    console.warn(`containsDailyKnowledgePointsDate=${String(containsDailyKnowledgePointsDate)}`);
+  }
+
+  if (containsKnowledgePoints) delete payload.knowledgePoints;
+  if (containsDailyKnowledgePointsEarned) delete payload.dailyKnowledgePointsEarned;
+  if (containsDailyKnowledgePointsDate) delete payload.dailyKnowledgePointsDate;
+
+  return {
+    payload,
+    containsKnowledgePoints,
+    containsDailyKnowledgePointsEarned,
+    containsDailyKnowledgePointsDate
+  };
+}
+
 async function flushRemotePlayerProgressSave(reason = 'unknown') {
-  if (!hasHydratedRemotePlayerProgress) return;
+  if (!isFirebaseHydrated) {
+    console.info('[FirebaseSync] saveProgress skipped because Firebase not hydrated');
+    console.info(`reason=${String(reason || 'unknown')}`);
+    return;
+  }
   if (!firebaseSession.uid) return;
   if (isApplyingRemotePlayerProgress) return;
 
@@ -1441,9 +1545,26 @@ async function flushRemotePlayerProgressSave(reason = 'unknown') {
   }
 
   remotePlayerProgressSaveInFlight = true;
-  const payload = buildRemoteProgressPayloadFromLocalState();
+  const rawPayload = buildRemoteProgressPayloadFromLocalState();
+  const {
+    payload,
+    containsKnowledgePoints,
+    containsDailyKnowledgePointsEarned,
+    containsDailyKnowledgePointsDate
+  } = removeProtectedProgressFields(rawPayload);
   const flushReason = String(reason || remotePlayerProgressPendingReason || 'unknown').trim() || 'unknown';
   remotePlayerProgressPendingReason = '';
+  const payloadKeys = Object.keys(payload).sort();
+  console.info('[FirebaseSync] saveProgress requested');
+  console.info(`reason=${flushReason}`);
+  console.info(`isFirebaseHydrated=${String(isFirebaseHydrated)}`);
+  console.info(`knowledgePoints=${String(studyState.knowledgePoints)}`);
+  console.info(`dailyKnowledgePointsEarned=${String(studyState.dailyKnowledge?.points ?? 0)}`);
+  console.info(`dailyKnowledgePointsDate=${String(studyState.dailyKnowledge?.dateKey ?? '')}`);
+  console.info(`payloadIncludesKnowledgePoints=${String(containsKnowledgePoints)}`);
+  console.info(`payloadIncludesDailyKnowledgePointsEarned=${String(containsDailyKnowledgePointsEarned)}`);
+  console.info(`payloadIncludesDailyKnowledgePointsDate=${String(containsDailyKnowledgePointsDate)}`);
+  console.info(`payloadKeys=${payloadKeys.join(',')}`);
 
   try {
     await saveFirebasePlayerProgress(firebaseSession.uid, payload);
@@ -1461,7 +1582,11 @@ async function flushRemotePlayerProgressSave(reason = 'unknown') {
 }
 
 function queueRemotePlayerProgressSave(reason = 'unknown') {
-  if (!hasHydratedRemotePlayerProgress) return;
+  if (!isFirebaseHydrated) {
+    console.info('[FirebaseSync] saveProgress skipped because Firebase not hydrated');
+    console.info(`reason=${String(reason || 'unknown')}`);
+    return;
+  }
   if (!firebaseSession.uid) return;
   if (isApplyingRemotePlayerProgress) return;
 
@@ -1490,9 +1615,10 @@ async function runGameCenterAutoAuthForStartup() {
 }
 
 async function bootstrapRemotePlayerProgressSync() {
+  isFirebaseHydrated = false;
   if (!isFirebaseBridgeAvailable()) {
     console.warn('[FirebaseSync] FirebaseBridge unavailable. Using Preferences cache only.');
-    hasHydratedRemotePlayerProgress = false;
+    isFirebaseHydrated = false;
     await runGameCenterAutoAuthForStartup();
     return;
   }
@@ -1520,7 +1646,50 @@ async function bootstrapRemotePlayerProgressSync() {
       alias: identity.alias
     });
 
+    const today = getStudyDateKey();
     const progressResult = await getFirebasePlayerProgress(firebaseSession.uid);
+    let playerKnowledgeResult = await getFirebasePlayerKnowledge(firebaseSession.uid, today);
+    const playerKnowledgeMeta = playerKnowledgeResult?.meta ?? {};
+    const shouldInitializePlayerKnowledge = (
+      Math.floor(sanitizeNumber(playerKnowledgeResult?.data?.updatedAt, 0)) <= 0
+      || !playerKnowledgeMeta.hasKnowledgePoints
+      || !playerKnowledgeMeta.hasDailyKnowledgePointsEarned
+      || !playerKnowledgeMeta.hasDailyKnowledgePointsDate
+    );
+    if (shouldInitializePlayerKnowledge) {
+      const localDailyDateKey = String(studyState.dailyKnowledge?.dateKey ?? '').trim();
+      const localDailyPoints = Math.max(
+        0,
+        Math.floor(sanitizeNumber(studyState.dailyKnowledge?.points, 0))
+      );
+      const baselineDailyKnowledgePointsEarned = localDailyDateKey === today
+        ? Math.min(DOJO_DAILY_CAP_POINTS, localDailyPoints)
+        : 0;
+      const baselineDailyKnowledgePointsDate = localDailyDateKey === today ? today : '';
+      console.info('[FirebaseSync] player knowledge missing required fields; initialize via transaction');
+      console.info(`hasKnowledgePoints=${String(playerKnowledgeMeta.hasKnowledgePoints)}`);
+      console.info(`hasDailyKnowledgePointsEarned=${String(playerKnowledgeMeta.hasDailyKnowledgePointsEarned)}`);
+      console.info(`hasDailyKnowledgePointsDate=${String(playerKnowledgeMeta.hasDailyKnowledgePointsDate)}`);
+      console.info(`fallbackProgressSp=${String(playerKnowledgeMeta.fallbackProgressSp ?? 0)}`);
+      console.info(`baselineDailyKnowledgePointsEarned=${String(baselineDailyKnowledgePointsEarned)}`);
+      console.info(`baselineDailyKnowledgePointsDate=${String(baselineDailyKnowledgePointsDate)}`);
+      const initializedKnowledge = await claimFirebaseKnowledgePointReward(firebaseSession.uid, {
+        calculatedReward: 0,
+        dailyKnowledgePointLimit: DOJO_DAILY_CAP_POINTS,
+        dateKey: today,
+        baselineDailyKnowledgePointsEarned,
+        baselineDailyKnowledgePointsDate
+      });
+      playerKnowledgeResult = {
+        uid: initializedKnowledge.uid,
+        data: initializedKnowledge.data,
+        meta: {
+          hasKnowledgePoints: true,
+          hasDailyKnowledgePointsEarned: true,
+          hasDailyKnowledgePointsDate: true
+        }
+      };
+    }
     let progressPayload = null;
     if (progressResult.exists && progressResult.data) {
       progressPayload = normalizeRemoteProgressPayload(progressResult.data);
@@ -1532,17 +1701,35 @@ async function bootstrapRemotePlayerProgressSync() {
     }
 
     isApplyingRemotePlayerProgress = true;
-    applyStudyData(buildStudyDataFromRemoteProgress(progressPayload));
+    const baseStudyData = buildStudyDataFromRemoteProgress(progressPayload);
+    const playerKnowledge = normalizePlayerKnowledgeForToday(playerKnowledgeResult?.data ?? {}, today);
+    console.info('[FirebaseSync] before hydrate from Firestore');
+    console.info(`knowledgePoints=${playerKnowledge.knowledgePoints}`);
+    console.info(`dailyKnowledgePointsEarned=${playerKnowledge.dailyKnowledge.points}`);
+    console.info(`dailyKnowledgePointsDate=${playerKnowledge.firestoreDateKey}`);
+    console.info(`localKnowledgePoints=${String(studyState.knowledgePoints)}`);
+    console.info(`localDailyKnowledgePointsEarned=${String(studyState.dailyKnowledge?.points ?? 0)}`);
+    console.info(`localDailyKnowledgePointsDate=${String(studyState.dailyKnowledge?.dateKey ?? '')}`);
+    applyStudyData({
+      ...baseStudyData,
+      knowledgePoints: playerKnowledge.knowledgePoints,
+      dailyKnowledge: playerKnowledge.dailyKnowledge
+    });
     await saveStudyStateForActiveAccount();
     isApplyingRemotePlayerProgress = false;
 
-    hasHydratedRemotePlayerProgress = true;
+    isFirebaseHydrated = true;
     remotePlayerProgressDirty = false;
     remotePlayerProgressPendingReason = '';
+    console.info('[FirebaseSync] after hydrate from Firestore');
+    console.info(`knowledgePoints=${String(studyState.knowledgePoints)}`);
+    console.info(`dailyKnowledgePointsEarned=${String(studyState.dailyKnowledge?.points ?? 0)}`);
+    console.info(`dailyKnowledgePointsDate=${String(studyState.dailyKnowledge?.dateKey ?? '')}`);
+    console.info(`isFirebaseHydrated=${String(isFirebaseHydrated)}`);
     console.info('[FirebaseSync] player progress hydrated from Firestore.');
   } catch (error) {
     isApplyingRemotePlayerProgress = false;
-    hasHydratedRemotePlayerProgress = false;
+    isFirebaseHydrated = false;
     console.warn('[FirebaseSync] bootstrap failed. Keeping local cache as fallback:', error);
   }
 }
@@ -5001,7 +5188,7 @@ watch(
   () => getActiveProfileKey(),
   (nextKey, prevKey) => {
     if (nextKey === prevKey) return;
-    if (hasHydratedRemotePlayerProgress && firebaseSession.uid) {
+    if (isFirebaseHydrated && firebaseSession.uid) {
       console.info('[FirebaseSync] active profile key changed; keeping Firestore-authoritative state.');
       return;
     }
@@ -5281,8 +5468,18 @@ function returnToHome() {
   currentScreen.value = 'home';
 }
 
-function openStudy() {
+async function openStudy() {
   currentScreen.value = 'study';
+  const snapshot = await refreshStudyKnowledgeFromFirebase('open_study');
+  const today = getStudyDateKey();
+  const knowledgePoints = snapshot?.knowledgePoints ?? studyState.knowledgePoints;
+  const dailyEarned = snapshot?.dailyKnowledgePointsEarned ?? studyState.dailyKnowledge.points;
+  const dailyDate = snapshot?.dailyKnowledgePointsDate ?? studyState.dailyKnowledge.dateKey;
+  console.info('[KnowledgeDojo] enter page');
+  console.info(`knowledgePoints=${knowledgePoints}`);
+  console.info(`dailyKnowledgePointsEarned=${dailyEarned}`);
+  console.info(`dailyKnowledgePointsDate=${dailyDate}`);
+  console.info(`today=${today}`);
 }
 
 function openSettings() {
@@ -5346,8 +5543,79 @@ function toggleSkillEquip(skillId) {
   playerConfig.equippedSkillIds = [...playerConfig.equippedSkillIds, skillId];
 }
 
-function addStudyKnowledgePoints(points) {
-  studyState.knowledgePoints += points;
+async function refreshStudyKnowledgeFromFirebase(reason = 'unknown') {
+  syncStudyDailyKnowledgeDate();
+  if (!isFirebaseBridgeAvailable()) return;
+  if (!firebaseSession.uid) return;
+
+  const today = getStudyDateKey();
+  try {
+    const result = await getFirebasePlayerKnowledge(firebaseSession.uid, today);
+    const normalized = normalizePlayerKnowledgeForToday(result?.data ?? {}, today);
+
+    studyState.knowledgePoints = normalized.knowledgePoints;
+    studyState.dailyKnowledge = normalized.dailyKnowledge;
+
+    console.info(`[Dojo] knowledge synced from Firebase reason=${reason}.`);
+    return {
+      knowledgePoints: normalized.knowledgePoints,
+      dailyKnowledgePointsEarned: normalized.dailyKnowledge.points,
+      dailyKnowledgePointsDate: normalized.firestoreDateKey
+    };
+  } catch (error) {
+    console.warn(`[Dojo] failed to sync knowledge reason=${reason}:`, error);
+    return null;
+  }
+}
+
+async function claimKnowledgePointReward(payload = {}) {
+  const calculatedReward = Math.max(0, Math.floor(sanitizeNumber(payload.calculatedReward, 0)));
+  const correctCount = Math.max(0, Math.floor(sanitizeNumber(payload.correctCount, 0)));
+  const totalQuestions = Math.max(0, Math.floor(sanitizeNumber(payload.questionCount, 0)));
+  const mode = String(payload.modeKey ?? '').trim();
+  const today = getStudyDateKey();
+
+  syncStudyDailyKnowledgeDate();
+  console.info('[KnowledgeDojo] before claim');
+  console.info(`calculatedReward=${calculatedReward}`);
+  console.info(`correctCount=${correctCount}`);
+  console.info(`mode=${mode || 'unknown'}`);
+
+  if (!isFirebaseBridgeAvailable() || !firebaseSession.uid) {
+    throw new Error('獎勵結算服務尚未就緒，請稍後再試。');
+  }
+
+  console.info('[KnowledgeDojo] calling claimKnowledgePointReward');
+  console.info(`uid=${firebaseSession.uid}`);
+  console.info(`calculatedReward=${calculatedReward}`);
+
+  const settlement = await claimFirebaseKnowledgePointReward(firebaseSession.uid, {
+    calculatedReward,
+    dailyKnowledgePointLimit: DOJO_DAILY_CAP_POINTS,
+    dateKey: today,
+    mode,
+    correctCount,
+    totalQuestions
+  });
+
+  const normalized = normalizePlayerKnowledgeForToday(settlement?.data ?? {}, today);
+  const actualReward = Math.max(0, Math.floor(sanitizeNumber(settlement.actualReward, 0)));
+
+  studyState.knowledgePoints = normalized.knowledgePoints;
+  studyState.dailyKnowledge = normalized.dailyKnowledge;
+
+  queueRemotePlayerProgressSave('dojo_settle_reward');
+
+  return {
+    correctCount,
+    totalQuestions,
+    calculatedReward,
+    actualReward,
+    dailyKnowledgePointsEarned: normalized.dailyKnowledge.points,
+    dailyKnowledgePointsDate: normalized.firestoreDateKey,
+    dailyKnowledgePointLimit: DOJO_DAILY_CAP_POINTS,
+    knowledgePoints: normalized.knowledgePoints
+  };
 }
 
 function recordStudyAnswer(payload) {

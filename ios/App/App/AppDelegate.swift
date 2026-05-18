@@ -454,10 +454,13 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authenticateAnonymous", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "upsertUser", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getProgress", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "saveProgress", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "saveProgress", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPlayerKnowledge", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleDojoReward", returnType: CAPPluginReturnPromise)
     ]
 
     private let progressSchemaVersion = 1
+    private let dojoDailyKnowledgePointDefaultLimit = 10
 
     @objc func authenticateAnonymous(_ call: CAPPluginCall) {
 #if canImport(FirebaseAuth)
@@ -525,6 +528,44 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             case .success:
                 DispatchQueue.main.async {
                     self.performSaveProgress(call)
+                }
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 或 FirebaseFirestore 尚未連結。", "firebase_services_unavailable")
+#endif
+    }
+
+    @objc func getPlayerKnowledge(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        ensureAnonymousUser { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    self.performGetPlayerKnowledge(call)
+                }
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    call.reject("Firebase 匿名登入失敗。", "firebase_auth_failed", error as NSError)
+                }
+            }
+        }
+#else
+        call.reject("FirebaseAuth 或 FirebaseFirestore 尚未連結。", "firebase_services_unavailable")
+#endif
+    }
+
+    @objc func settleDojoReward(_ call: CAPPluginCall) {
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        ensureAnonymousUser { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    self.performSettleDojoReward(call)
                 }
             case .failure(let error):
                 DispatchQueue.main.async {
@@ -619,11 +660,34 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             }
 
             guard let snapshot, snapshot.exists, let data = snapshot.data() else {
+                print("[FirebaseBridge getProgress] raw Firestore progress")
+                print("uid=\(uid)")
+                print("knowledgePoints=nil")
+                print("dailyKnowledgePointsEarned=nil")
+                print("dailyKnowledgePointsDate=nil")
+                print("hasDailyKnowledgePointsEarned=false")
+                print("hasDailyKnowledgePointsDate=false")
+                print("rawKeys=")
                 call.resolve([
                     "exists": false
                 ])
                 return
             }
+
+            let hasDailyKnowledgePointsEarned = data.keys.contains("dailyKnowledgePointsEarned")
+            let hasDailyKnowledgePointsDate = data.keys.contains("dailyKnowledgePointsDate")
+            let rawKnowledgePoints = data["knowledgePoints"] ?? data["sp"] ?? "nil"
+            let rawDailyEarned = data["dailyKnowledgePointsEarned"] ?? "nil"
+            let rawDailyDate = data["dailyKnowledgePointsDate"] ?? "nil"
+            let rawKeys = data.keys.sorted().joined(separator: ",")
+            print("[FirebaseBridge getProgress] raw Firestore progress")
+            print("uid=\(uid)")
+            print("knowledgePoints=\(rawKnowledgePoints)")
+            print("dailyKnowledgePointsEarned=\(rawDailyEarned)")
+            print("dailyKnowledgePointsDate=\(rawDailyDate)")
+            print("hasDailyKnowledgePointsEarned=\(hasDailyKnowledgePointsEarned)")
+            print("hasDailyKnowledgePointsDate=\(hasDailyKnowledgePointsDate)")
+            print("rawKeys=\(rawKeys)")
 
             call.resolve([
                 "exists": true,
@@ -640,6 +704,16 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let progress = sanitizeProgressPayload(rawProgress)
+        let containsKnowledgePoints = rawProgress.keys.contains("knowledgePoints")
+        let containsDailyKnowledgePointsEarned = rawProgress.keys.contains("dailyKnowledgePointsEarned")
+        let containsDailyKnowledgePointsDate = rawProgress.keys.contains("dailyKnowledgePointsDate")
+        let containsProtectedFields = containsKnowledgePoints || containsDailyKnowledgePointsEarned || containsDailyKnowledgePointsDate
+        let payloadKeys = progress.keys.sorted().joined(separator: ",")
+        print("[FirebaseBridge saveProgress] write mode")
+        print("mode=merge")
+        print("payloadKeys=\(payloadKeys)")
+        print("containsProtectedFields=\(containsProtectedFields)")
+
         let progressRef = Firestore
             .firestore()
             .collection("users")
@@ -655,6 +729,304 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve([
                 "uid": uid,
                 "saved": true
+            ])
+        }
+    }
+
+    private func performGetPlayerKnowledge(_ call: CAPPluginCall) {
+        guard let uid = normalizedUid(from: call) else { return }
+        let requestedDateKey = normalizedDateKey(call.getString("dateKey"), fallback: currentDateKey())
+        let firestore = Firestore.firestore()
+        let playerRef = Firestore
+            .firestore()
+            .collection("players")
+            .document(uid)
+        let progressRef = firestore
+            .collection("users")
+            .document(uid)
+            .collection("progress")
+            .document("main")
+
+        playerRef.getDocument { snapshot, error in
+            if let error {
+                let nsError = error as NSError
+                if self.isFirestorePermissionDenied(nsError) {
+                    print("[FirebaseBridge getPlayerKnowledge] players/{uid} permission denied, fallback to users/{uid}/progress/main")
+                    self.resolvePlayerKnowledgeFromProgressFallback(
+                        call: call,
+                        uid: uid,
+                        requestedDateKey: requestedDateKey,
+                        progressRef: progressRef
+                    )
+                    return
+                }
+                call.reject("讀取玩家知識點數失敗。", "firebase_player_knowledge_read_failed", nsError)
+                return
+            }
+
+            let raw = snapshot?.data() ?? [:]
+            let hasKnowledgePoints = raw.keys.contains("knowledgePoints")
+            let hasDailyKnowledgePointsEarned = raw.keys.contains("dailyKnowledgePointsEarned")
+            let hasDailyKnowledgePointsDate = raw.keys.contains("dailyKnowledgePointsDate")
+            let rawKeys = raw.keys.sorted().joined(separator: ",")
+
+            progressRef.getDocument { progressSnapshot, progressError in
+                if let progressError {
+                    print("[FirebaseBridge getPlayerKnowledge] fallback progress read failed: \(progressError.localizedDescription)")
+                }
+
+                let progressRaw = progressSnapshot?.data() ?? [:]
+                let fallbackProgressSp = max(0, self.normalizeInt(progressRaw["sp"], fallback: 0))
+                let knowledgePoints = max(0, self.normalizeInt(raw["knowledgePoints"], fallback: fallbackProgressSp))
+                let storedDateKey = self.normalizedDateKey(raw["dailyKnowledgePointsDate"], fallback: requestedDateKey)
+                let storedDailyEarned = max(0, self.normalizeInt(raw["dailyKnowledgePointsEarned"], fallback: 0))
+                let effectiveDailyEarned = storedDateKey == requestedDateKey ? storedDailyEarned : 0
+                let updatedAtMillis = self.serializeTimestampMillis(raw["updatedAt"])
+
+                print("[FirebaseBridge getPlayerKnowledge] raw Firestore player")
+                print("uid=\(uid)")
+                print("knowledgePoints=\(knowledgePoints)")
+                print("dailyKnowledgePointsEarned=\(effectiveDailyEarned)")
+                print("dailyKnowledgePointsDate=\(storedDateKey)")
+                print("hasKnowledgePoints=\(hasKnowledgePoints)")
+                print("hasDailyKnowledgePointsEarned=\(hasDailyKnowledgePointsEarned)")
+                print("hasDailyKnowledgePointsDate=\(hasDailyKnowledgePointsDate)")
+                print("fallbackProgressSp=\(fallbackProgressSp)")
+                print("rawKeys=\(rawKeys)")
+
+                call.resolve([
+                    "uid": uid,
+                    "meta": [
+                        "hasKnowledgePoints": hasKnowledgePoints,
+                        "hasDailyKnowledgePointsEarned": hasDailyKnowledgePointsEarned,
+                        "hasDailyKnowledgePointsDate": hasDailyKnowledgePointsDate,
+                        "fallbackProgressSp": fallbackProgressSp,
+                        "rawKeys": rawKeys,
+                        "source": "players"
+                    ],
+                    "data": [
+                        "knowledgePoints": knowledgePoints,
+                        "dailyKnowledgePointsEarned": effectiveDailyEarned,
+                        "dailyKnowledgePointsDate": hasDailyKnowledgePointsDate ? storedDateKey : "",
+                        "updatedAt": updatedAtMillis
+                    ]
+                ])
+            }
+        }
+    }
+
+    private func performSettleDojoReward(_ call: CAPPluginCall) {
+        guard let uid = normalizedUid(from: call) else { return }
+
+        let calculatedReward = max(0, normalizeInt(call.getInt("calculatedReward"), fallback: 0))
+        let requestedLimit = max(0, normalizeInt(call.getInt("dailyKnowledgePointLimit"), fallback: dojoDailyKnowledgePointDefaultLimit))
+        let dailyLimit = max(1, requestedLimit)
+        let targetDateKey = normalizedDateKey(call.getString("dateKey"), fallback: currentDateKey())
+        let mode = String(call.getString("mode") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let correctCount = max(0, normalizeInt(call.getInt("correctCount"), fallback: 0))
+        let totalQuestions = max(0, normalizeInt(call.getInt("totalQuestions"), fallback: 0))
+        let baselineDailyKnowledgePointsEarned = max(
+            0,
+            normalizeInt(call.getInt("baselineDailyKnowledgePointsEarned"), fallback: 0)
+        )
+        let baselineDailyKnowledgePointsDate = normalizedDateKey(
+            call.getString("baselineDailyKnowledgePointsDate"),
+            fallback: ""
+        )
+        let firestore = Firestore.firestore()
+        let playerRef = Firestore
+            .firestore()
+            .collection("players")
+            .document(uid)
+        let progressRef = firestore
+            .collection("users")
+            .document(uid)
+            .collection("progress")
+            .document("main")
+        print("[KnowledgeDojoTransaction] claim request uid=\(uid) mode=\(mode.isEmpty ? "unknown" : mode) correctCount=\(correctCount) totalQuestions=\(totalQuestions) calculatedReward=\(calculatedReward)")
+
+        Firestore.firestore().runTransaction({ transaction, errorPointer -> Any? in
+            var current: [String: Any] = [:]
+            var useProgressFallback = false
+            do {
+                let snapshot = try transaction.getDocument(playerRef)
+                current = snapshot.data() ?? [:]
+            } catch let fetchError as NSError {
+                if self.isFirestorePermissionDenied(fetchError) {
+                    useProgressFallback = true
+                    current = [:]
+                    print("[KnowledgeDojoTransaction] players/{uid} permission denied, fallback to users/{uid}/progress/main")
+                } else {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
+            }
+
+            var fallbackProgressSp = 0
+            var progressRaw: [String: Any] = [:]
+            do {
+                let progressSnapshot = try transaction.getDocument(progressRef)
+                progressRaw = progressSnapshot.data() ?? [:]
+                fallbackProgressSp = max(0, self.normalizeInt(progressRaw["sp"], fallback: 0))
+            } catch let progressReadError as NSError {
+                errorPointer?.pointee = progressReadError
+                return nil
+            }
+            let progressStats = progressRaw["stats"] as? [String: Any] ?? [:]
+            let progressDateKey = self.normalizedDateKey(progressStats["dailyKnowledgePointsDate"], fallback: "")
+            let progressDailyEarned = max(0, self.normalizeInt(progressStats["dailyKnowledgePointsEarned"], fallback: 0))
+            let hasProgressDailySnapshot = !progressDateKey.isEmpty
+
+            let hasStoredDailyEarned = current.keys.contains("dailyKnowledgePointsEarned")
+            let hasStoredDailyDate = current.keys.contains("dailyKnowledgePointsDate")
+            let storedDateKey = self.normalizedDateKey(current["dailyKnowledgePointsDate"], fallback: "")
+            let storedDailyEarned = max(0, self.normalizeInt(current["dailyKnowledgePointsEarned"], fallback: 0))
+            let hasStoredDailySnapshot = hasStoredDailyEarned && hasStoredDailyDate && !storedDateKey.isEmpty
+
+            useProgressFallback = useProgressFallback || current.isEmpty
+            let currentKnowledgePoints = useProgressFallback
+                ? max(0, fallbackProgressSp)
+                : max(0, self.normalizeInt(current["knowledgePoints"], fallback: fallbackProgressSp))
+
+            let effectiveDailyEarned: Int
+            let dailySource: String
+            if hasStoredDailySnapshot {
+                effectiveDailyEarned = storedDateKey == targetDateKey
+                    ? min(dailyLimit, storedDailyEarned)
+                    : 0
+                dailySource = "firebase"
+            } else if hasProgressDailySnapshot && progressDateKey == targetDateKey {
+                effectiveDailyEarned = min(dailyLimit, progressDailyEarned)
+                dailySource = "progress"
+            } else if baselineDailyKnowledgePointsDate == targetDateKey {
+                effectiveDailyEarned = min(dailyLimit, baselineDailyKnowledgePointsEarned)
+                dailySource = "baseline"
+            } else {
+                effectiveDailyEarned = 0
+                dailySource = "baseline"
+            }
+
+            let remaining = max(0, dailyLimit - effectiveDailyEarned)
+            let actualReward = min(calculatedReward, remaining)
+            let updatedKnowledgePoints = currentKnowledgePoints + actualReward
+            let updatedDailyEarned = effectiveDailyEarned + actualReward
+            print("[KnowledgeDojoTransaction] before")
+            print("knowledgePoints=\(currentKnowledgePoints)")
+            print("dailyKnowledgePointsEarned=\(effectiveDailyEarned)")
+            print("dailyKnowledgePointsDate=\(storedDateKey.isEmpty ? targetDateKey : storedDateKey)")
+            print("today=\(targetDateKey)")
+            print("remaining=\(remaining)")
+            print("calculatedReward=\(calculatedReward)")
+            print("dailySource=\(dailySource)")
+            print("baselineDailyKnowledgePointsEarned=\(baselineDailyKnowledgePointsEarned)")
+            print("baselineDailyKnowledgePointsDate=\(baselineDailyKnowledgePointsDate)")
+
+            if useProgressFallback {
+                var updatedStats = progressStats
+                updatedStats["dailyKnowledgePointsEarned"] = updatedDailyEarned
+                updatedStats["dailyKnowledgePointsDate"] = targetDateKey
+                transaction.setData([
+                    "sp": updatedKnowledgePoints,
+                    "stats": updatedStats,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], forDocument: progressRef, merge: true)
+            } else {
+                transaction.setData([
+                    "knowledgePoints": updatedKnowledgePoints,
+                    "dailyKnowledgePointsEarned": updatedDailyEarned,
+                    "dailyKnowledgePointsDate": targetDateKey,
+                    "updatedAt": FieldValue.serverTimestamp()
+                ], forDocument: playerRef)
+            }
+
+            return [
+                "knowledgePoints": updatedKnowledgePoints,
+                "dailyKnowledgePointsEarned": updatedDailyEarned,
+                "dailyKnowledgePointsDate": targetDateKey,
+                "actualReward": actualReward,
+                "remaining": max(0, dailyLimit - updatedDailyEarned),
+                "updatedAt": Int64(Date().timeIntervalSince1970 * 1000)
+            ]
+        }, completion: { object, error in
+            if let error {
+                call.reject("知識道場獎勵結算失敗。", "firebase_dojo_settlement_failed", error as NSError)
+                return
+            }
+
+            guard let payload = object as? [String: Any] else {
+                call.reject("知識道場獎勵結算失敗：缺少交易結果。", "firebase_dojo_settlement_empty")
+                return
+            }
+
+            let knowledgePoints = max(0, self.normalizeInt(payload["knowledgePoints"], fallback: 0))
+            let dailyKnowledgePointsEarned = max(0, self.normalizeInt(payload["dailyKnowledgePointsEarned"], fallback: 0))
+            let dailyKnowledgePointsDate = self.normalizedDateKey(payload["dailyKnowledgePointsDate"], fallback: targetDateKey)
+            let actualReward = max(0, self.normalizeInt(payload["actualReward"], fallback: 0))
+            let remaining = max(0, self.normalizeInt(payload["remaining"], fallback: 0))
+            let updatedAt = self.serializeTimestampMillis(payload["updatedAt"])
+            print("[KnowledgeDojoTransaction] after")
+            print("actualReward=\(actualReward)")
+            print("knowledgePoints=\(knowledgePoints)")
+            print("dailyKnowledgePointsEarned=\(dailyKnowledgePointsEarned)")
+            print("dailyKnowledgePointsDate=\(dailyKnowledgePointsDate)")
+            print("dailyLimit=\(dailyLimit)")
+
+            call.resolve([
+                "uid": uid,
+                "actualReward": actualReward,
+                "remaining": remaining,
+                "data": [
+                    "knowledgePoints": knowledgePoints,
+                    "dailyKnowledgePointsEarned": dailyKnowledgePointsEarned,
+                    "dailyKnowledgePointsDate": dailyKnowledgePointsDate,
+                    "updatedAt": updatedAt
+                ]
+            ])
+        })
+    }
+
+    private func resolvePlayerKnowledgeFromProgressFallback(
+        call: CAPPluginCall,
+        uid: String,
+        requestedDateKey: String,
+        progressRef: DocumentReference
+    ) {
+        progressRef.getDocument { snapshot, error in
+            if let error {
+                call.reject("讀取玩家知識點數失敗。", "firebase_player_knowledge_read_failed", error as NSError)
+                return
+            }
+
+            let raw = snapshot?.data() ?? [:]
+            let stats = raw["stats"] as? [String: Any] ?? [:]
+            let knowledgePoints = max(0, self.normalizeInt(raw["sp"], fallback: 0))
+            let storedDateKey = self.normalizedDateKey(stats["dailyKnowledgePointsDate"], fallback: "")
+            let storedDailyEarned = max(0, self.normalizeInt(stats["dailyKnowledgePointsEarned"], fallback: 0))
+            let effectiveDailyEarned = storedDateKey == requestedDateKey ? storedDailyEarned : 0
+            let updatedAtMillis = self.serializeTimestampMillis(raw["updatedAt"])
+
+            print("[FirebaseBridge getPlayerKnowledge] fallback progress snapshot")
+            print("uid=\(uid)")
+            print("knowledgePoints=\(knowledgePoints)")
+            print("dailyKnowledgePointsEarned=\(effectiveDailyEarned)")
+            print("dailyKnowledgePointsDate=\(storedDateKey)")
+
+            call.resolve([
+                "uid": uid,
+                "meta": [
+                    "hasKnowledgePoints": true,
+                    "hasDailyKnowledgePointsEarned": !storedDateKey.isEmpty,
+                    "hasDailyKnowledgePointsDate": !storedDateKey.isEmpty,
+                    "fallbackProgressSp": knowledgePoints,
+                    "rawKeys": raw.keys.sorted().joined(separator: ","),
+                    "source": "progress_fallback"
+                ],
+                "data": [
+                    "knowledgePoints": knowledgePoints,
+                    "dailyKnowledgePointsEarned": effectiveDailyEarned,
+                    "dailyKnowledgePointsDate": storedDateKey,
+                    "updatedAt": updatedAtMillis
+                ]
             ])
         }
     }
@@ -702,6 +1074,45 @@ class FirebaseBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             return parsed
         }
         return fallback
+    }
+
+    private func normalizedDateKey(_ value: Any?, fallback: String) -> String {
+        let text = String(describing: value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil {
+            return text
+        }
+        return fallback
+    }
+
+    private func currentDateKey() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    private func serializeTimestampMillis(_ value: Any?) -> Int64 {
+        if let timestamp = value as? Timestamp {
+            return Int64(timestamp.dateValue().timeIntervalSince1970 * 1000)
+        }
+        if let number = value as? NSNumber {
+            return number.int64Value
+        }
+        if let text = value as? String, let parsed = Int64(text) {
+            return parsed
+        }
+        return 0
+    }
+
+    private func isFirestorePermissionDenied(_ error: NSError) -> Bool {
+        if error.domain == FirestoreErrorDomain
+            && error.code == FirestoreErrorCode.permissionDenied.rawValue {
+            return true
+        }
+        return error.localizedDescription.lowercased().contains("permission")
     }
 
     private func normalizeStringArray(_ value: Any?) -> [String] {

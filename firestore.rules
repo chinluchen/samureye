@@ -78,6 +78,29 @@ service cloud.firestore {
       return validProgressKeys() && validProgressTypes();
     }
 
+    function validPlayerKnowledgeKeys() {
+      return request.resource.data.keys().hasOnly([
+        'knowledgePoints',
+        'dailyKnowledgePointsEarned',
+        'dailyKnowledgePointsDate',
+        'updatedAt'
+      ]);
+    }
+
+    function validPlayerKnowledgeTypes() {
+      return request.resource.data.knowledgePoints is int
+        && request.resource.data.knowledgePoints >= 0
+        && request.resource.data.dailyKnowledgePointsEarned is int
+        && request.resource.data.dailyKnowledgePointsEarned >= 0
+        && request.resource.data.dailyKnowledgePointsDate is string
+        && request.resource.data.dailyKnowledgePointsDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validPlayerKnowledgeWrite() {
+      return validPlayerKnowledgeKeys() && validPlayerKnowledgeTypes();
+    }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && validUserCreate(uid);
@@ -90,6 +113,13 @@ service cloud.firestore {
         allow update: if isOwner(uid) && docId == 'main' && validProgressWrite();
         allow delete: if false;
       }
+    }
+
+    match /players/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && validPlayerKnowledgeWrite();
+      allow update: if isOwner(uid) && validPlayerKnowledgeWrite();
+      allow delete: if false;
     }
   }
 }
