@@ -1,0 +1,902 @@
+[
+  {
+    "id": "P001",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說：「我戴新眼鏡看遠清楚，但看近有點吃力。」最適合先確認哪一件事？",
+    "options": [
+      "先確認年齡、近距離需求與配戴時間",
+      "直接判定眼鏡做錯",
+      "立刻建議換成太陽眼鏡",
+      "只要遠方清楚就不用處理"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "看近吃力可能與年齡、調節需求、處方或適應有關，應先了解使用情境。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P002",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客抱怨新眼鏡戴起來頭暈，最不適合的第一反應是？",
+    "options": [
+      "先了解症狀與配戴時間",
+      "確認處方、瞳距與鏡框調整",
+      "直接說忍一忍就會好",
+      "詢問是否與舊眼鏡差異很大"
+    ],
+    "answerIndex": 2,
+    "difficulty": 2,
+    "explanation": "頭暈可能有多種原因，不應未檢查就要求顧客忍耐。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P003",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "驗光前詢問顧客主要用眼需求，最主要目的是什麼？",
+    "options": [
+      "讓處方與鏡片建議更符合實際生活",
+      "讓顧客覺得流程比較久",
+      "方便推銷最貴的鏡片",
+      "取代所有檢查步驟"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "用眼需求會影響處方溝通、鏡片選擇與配戴建議。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P004",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說自己「度數一直加深」，下列哪個追問最有幫助？",
+    "options": [
+      "最近用眼距離、時間與舊眼鏡配戴狀況",
+      "喜歡什麼顏色的鏡框",
+      "有沒有帶現金",
+      "平常喝什麼飲料"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "了解近距離用眼與配戴習慣，有助於判斷可能原因與衛教方向。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P005",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "自動驗光數據在主觀驗光中的角色比較接近什麼？",
+    "options": [
+      "初始參考值，不是最後處方",
+      "最後處方，不需再確認",
+      "只能拿來裝飾報表",
+      "只適合兒童使用"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "自動驗光提供起始參考，仍需主觀驗光與配戴需求判斷。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P006",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若自動驗光結果與顧客主訴差異很大，較適合怎麼做？",
+    "options": [
+      "重新確認測量品質並進一步檢查",
+      "直接採用機器數字",
+      "直接忽略顧客感受",
+      "改問下一位顧客"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "數據異常時需確認測量條件、注視狀況與後續主觀反應。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P007",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "進行單眼主觀驗光時，遮蓋另一眼的主要目的為何？",
+    "options": [
+      "避免另一眼參與，讓檢查眼反應更明確",
+      "讓顧客比較緊張",
+      "讓視標變小",
+      "增加鏡片重量"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "遮蓋非檢查眼可減少雙眼共同參與造成的判斷干擾。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P008",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "主觀驗光過程中，若患者回答「差不多」，驗光者較適合怎麼做？",
+    "options": [
+      "放慢比較節奏並確認視標是否合適",
+      "立刻責怪患者不配合",
+      "隨機選一個答案",
+      "直接結束驗光"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "反應不明確時應改善比較條件，避免草率決定。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P009",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "紅綠測驗中，若顧客一直無法分辨紅綠差異，較合理的處理方式是？",
+    "options": [
+      "改用其他方法輔助確認球面度數",
+      "強迫顧客一定要選紅或綠",
+      "直接增加散光度數",
+      "表示顧客不能配眼鏡"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "紅綠反應不佳時可改用其他主觀方法，不宜強迫選擇。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P010",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "MPMVA概念中，「最大正度數」的重點比較接近什麼？",
+    "options": [
+      "在維持最佳視力下避免過度給負度數",
+      "讓影像越黑越好",
+      "讓患者看近完全不用力",
+      "讓散光自動消失"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "MPMVA常用於避免過度負鏡，尋找最佳視力下可接受的最大正球面。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P011",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若驗光者一直增加負球面，患者說「好像更黑」，但視力沒有明顯提升，應注意什麼？",
+    "options": [
+      "可能有過度負鏡的風險",
+      "代表一定還不夠近視",
+      "應直接再加-2.00D",
+      "不用再做任何確認"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "影像變黑不一定代表處方更正確，需避免過度負鏡。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P012",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "JCC主要用於下列哪一類檢查？",
+    "options": [
+      "散光軸度與散光度數的精細確認",
+      "眼壓測量",
+      "色覺測驗",
+      "測量眼鏡框寬度"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "JCC常用於主觀散光軸度與度數精調。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P013",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "進行JCC時，為什麼要讓顧客比較兩個選項？",
+    "options": [
+      "因為它是主觀比較測試，需要依清晰度反應調整",
+      "因為可以讓流程看起來專業",
+      "因為兩個選項答案永遠固定",
+      "因為不需要驗光者判斷"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "JCC依顧客對兩個位置的清晰度比較進行調整。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P014",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "JCC檢查時，若顧客每次都猶豫很久，最可能需要先檢查什麼？",
+    "options": [
+      "視標大小、照明、說明方式與顧客理解",
+      "顧客有沒有買鏡框",
+      "櫃台是否忙碌",
+      "店內音樂好不好聽"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "猶豫可能來自比較條件不佳或指令不清楚。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P015",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說：「上一副比較清楚，但戴久很累。」這句話提醒驗光者要注意什麼？",
+    "options": [
+      "清楚與舒適需要一起評估",
+      "只要清楚就一定正確",
+      "疲勞一定與度數無關",
+      "直接照舊處方即可"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "處方不只追求清晰，也要考量配戴舒適與使用需求。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P016",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "兒童或青少年近視控制諮詢時，哪個說法較適合？",
+    "options": [
+      "應評估用眼習慣、戶外活動與專業照護建議",
+      "只要戴最深的眼鏡就會控制近視",
+      "完全不用追蹤",
+      "只要少吃糖就會恢復視力"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "近視控制需綜合評估生活習慣、追蹤與專業建議。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P017",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客拿舊眼鏡來驗配新眼鏡，為什麼舊眼鏡資料有參考價值？",
+    "options": [
+      "可了解原本配戴狀況與新舊差異",
+      "舊眼鏡一定比新檢查準",
+      "有舊眼鏡就不用驗光",
+      "只用來看品牌"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "舊眼鏡能協助評估顧客適應與處方變化。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P018",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若新舊處方差異較大，較適合的服務方式是？",
+    "options": [
+      "向顧客說明差異與可能適應感",
+      "完全不說明直接交付",
+      "只說機器就是這樣",
+      "要求顧客不要問"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "處方差異較大時，溝通可降低不安並提升適應理解。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P019",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "瞳距資料錯誤可能造成下列哪種問題？",
+    "options": [
+      "影像不適、眼睛疲勞或配戴不舒服",
+      "鏡框顏色變淡",
+      "鏡片自動防霧",
+      "眼鏡變成隱形眼鏡"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "瞳距不正確可能造成稜鏡效應與配戴不適。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P020",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "配鏡時確認單眼瞳距的價值是什麼？",
+    "options": [
+      "可讓鏡片光學中心更符合每眼位置",
+      "只適合彩色鏡片",
+      "可取代驗光處方",
+      "讓鏡框比較便宜"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "單眼瞳距可提升光學中心定位的精確性。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P021",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客表示戴眼鏡看地板會浮浮的，尤其是新散光處方，應注意什麼？",
+    "options": [
+      "可能與散光變化、鏡片設計或適應有關",
+      "一定是顧客心理作用",
+      "一定要取消所有散光",
+      "代表眼鏡不用調整"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "散光處方變化可能影響空間感，需評估處方、鏡片與適應。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P022",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客第一次配戴漸進多焦鏡片，最需要先說明什麼？",
+    "options": [
+      "視線區域使用方式與適應期",
+      "鏡片會自動對焦所有距離",
+      "不用轉頭也能看清全部角落",
+      "戴上後不可能有任何適應感"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "漸進鏡片有不同視區與周邊變形，使用方式與適應說明很重要。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P023",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "漸進多焦鏡片驗配前，最需要了解哪一類資訊？",
+    "options": [
+      "顧客工作距離、閱讀習慣與生活需求",
+      "顧客喜歡哪個星座",
+      "店內冷氣溫度",
+      "顧客手機品牌"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "漸進設計選擇與配戴建議需配合實際用眼場景。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P024",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客抱怨新眼鏡看手機清楚，但看電腦不舒服，可能需要追問什麼？",
+    "options": [
+      "電腦距離、螢幕高度與使用時間",
+      "晚餐吃什麼",
+      "是否喜歡打電動",
+      "有沒有帶雨傘"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "中距離需求與姿勢常影響電腦使用舒適度。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P025",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "眼鏡調整中，鼻墊高度改變可能影響什麼？",
+    "options": [
+      "鏡片位置、視線通過點與配戴舒適",
+      "鏡片度數自動增加",
+      "鏡框材質變硬",
+      "鏡片顏色自動變深"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "鼻墊調整會改變鏡架位置，進而影響視線與舒適。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P026",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "鏡框前傾角與包覆角過度不合適時，可能造成什麼？",
+    "options": [
+      "視覺不適或鏡片光學表現改變",
+      "鏡片會自動消毒",
+      "耳朵聽力變好",
+      "驗光數據消失"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "鏡框配戴角度會影響鏡片在眼前的實際光學效果。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P027",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說眼鏡戴久會壓鼻子，最直接需要檢查什麼？",
+    "options": [
+      "鼻墊位置、鏡框重量與配重",
+      "紅綠測驗結果",
+      "色覺檢查結果",
+      "鏡片是否抗藍光"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "壓鼻多與鏡框配戴調整、重量分布有關。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P028",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說眼鏡一直往下滑，較可能與哪個因素有關？",
+    "options": [
+      "鼻墊、鏡腳彎度、鏡框尺寸或臉型配合",
+      "近視度數太低",
+      "視力表太亮",
+      "鏡片折射率太高一定造成"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "眼鏡滑落通常需檢查鏡框配戴與調整。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P029",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "濾藍光鏡片諮詢時，較恰當的說法是？",
+    "options": [
+      "可依使用情境討論舒適與需求，不應誇大療效",
+      "可以保證近視不再增加",
+      "可以治療所有乾眼",
+      "戴了就不用休息"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "鏡片功能應以合理需求說明，不應誇大醫療效果。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P030",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "抗反射鍍膜的主要優點較接近哪一項？",
+    "options": [
+      "減少反光、提升視覺清晰與外觀透明感",
+      "讓近視永久消失",
+      "讓眼睛變大",
+      "取代太陽眼鏡所有功能"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "抗反射鍍膜可降低鏡面反光，改善視覺與外觀。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P031",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "高度近視顧客選鏡框時，較適合提醒什麼？",
+    "options": [
+      "鏡框大小會影響鏡片厚度與外觀",
+      "鏡框越大鏡片一定越薄",
+      "鏡框顏色可以改變度數",
+      "只要便宜就完全沒差"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "高度近視常需考量框型大小、鏡片厚度與美觀。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P032",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若顧客處方度數較高，選擇較小且適合的鏡框通常有什麼好處？",
+    "options": [
+      "可能幫助減少邊緣厚度與重量",
+      "一定讓視力變成2.0",
+      "可以不用驗光",
+      "會讓散光自動消失"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "鏡框尺寸與鏡片切割位置會影響厚度與重量。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P033",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客表示「我只要買最薄的鏡片」，服務人員較適合怎麼回應？",
+    "options": [
+      "說明折射率、框型、度數與預算需要一起評估",
+      "直接說最薄一定最好",
+      "拒絕介紹其他選項",
+      "說薄度跟度數完全無關"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "鏡片選擇需要依處方、框型、視覺品質與預算綜合判斷。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P034",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "散光處方改變較多時，顧客可能需要注意什麼？",
+    "options": [
+      "初期空間感與地面感可能需要適應",
+      "一定完全不能戴",
+      "只能看近不能看遠",
+      "鏡片會自己變形"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "散光變化可能影響方向感與空間感，需適當說明。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P035",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客抱怨看燈光有眩光，較適合先了解什麼？",
+    "options": [
+      "發生時間、環境、鏡片狀態與眼睛狀況",
+      "只問鏡框價格",
+      "直接推薦最貴產品",
+      "一定是手機造成"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "眩光可能與環境、鏡片、眼睛狀況或鍍膜有關，需先釐清。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P036",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "乾眼相關抱怨在眼鏡門市中，較合適的處理態度是？",
+    "options": [
+      "提供基本衛教並建議必要時就醫評估",
+      "直接診斷疾病並開藥",
+      "說完全不用理會",
+      "只要換鏡框就會好"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "門市可提供一般衛教，但醫療診斷與治療應由合格醫療專業處理。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P037",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客詢問「我是不是白內障？」門市人員較合適的回應是？",
+    "options": [
+      "可說明症狀需由眼科醫師檢查確認",
+      "直接宣布診斷結果",
+      "說一定不是",
+      "推薦一副眼鏡就可以治好"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "涉及疾病診斷應轉介眼科醫師檢查。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P038",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若顧客突然出現視力明顯下降、閃光或飛蚊增加，較適合建議什麼？",
+    "options": [
+      "儘快就醫檢查",
+      "等一個月看看",
+      "只擦鏡片",
+      "換一副更流行的鏡框"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "突發視覺症狀可能需要醫療評估，不應延誤。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P039",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "驗光時顧客一直瞇眼看視標，驗光者應注意什麼？",
+    "options": [
+      "瞇眼可能暫時提升清晰度，需提醒自然睜眼",
+      "瞇眼代表不用配眼鏡",
+      "瞇眼可以取代鏡片",
+      "瞇眼越用力越準"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "瞇眼會改變視覺狀態，可能影響主觀反應。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P040",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "視力檢查時，為什麼要注意視標距離？",
+    "options": [
+      "距離會影響檢查條件與結果判讀",
+      "距離越近越專業",
+      "距離不重要",
+      "只要燈亮就可以"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "標準化距離有助於結果可靠與可比較。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P041",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客問「我可以用眼鏡處方買隱形眼鏡嗎？」較合適回答是？",
+    "options": [
+      "隱形眼鏡需考量頂點距離、基弧、直徑與配適，應另行評估",
+      "完全一樣可以直接買",
+      "只要度數少一半",
+      "用鏡框大小決定隱形眼鏡尺寸"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "隱形眼鏡與眼鏡處方及配適條件不同，需專門評估。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P042",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "隱形眼鏡配戴者若眼睛紅痛，較適合建議什麼？",
+    "options": [
+      "停止配戴並儘快就醫或尋求專業評估",
+      "繼續戴到習慣",
+      "用自來水沖鏡片再戴",
+      "把鏡片剪小一點"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "紅痛可能代表眼部問題，應停止配戴並評估。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P043",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客說：「我戴眼鏡看遠很好，但下樓梯怪怪的。」較需要檢查什麼？",
+    "options": [
+      "新舊處方差異、散光變化、鏡架調整與鏡片位置",
+      "店內地板顏色",
+      "發票號碼",
+      "顧客鞋子品牌"
+    ],
+    "answerIndex": 0,
+    "difficulty": 3,
+    "explanation": "下樓梯不適可能與空間感、處方變化或鏡架配戴位置相關。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P044",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "處理客訴時，哪一種態度最不恰當？",
+    "options": [
+      "先聽完主訴並確認問題",
+      "記錄症狀與配戴情境",
+      "一開始就說絕對不是我們的問題",
+      "安排檢查與調整流程"
+    ],
+    "answerIndex": 2,
+    "difficulty": 1,
+    "explanation": "客訴處理應先理解問題，不應先否定顧客感受。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P045",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "顧客新眼鏡不適，檢查流程較合理的順序是？",
+    "options": [
+      "聽主訴、查舊鏡與新鏡、確認配戴位置、必要時複驗",
+      "直接退費不檢查",
+      "只看鏡框顏色",
+      "先責怪顧客戴法錯"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "系統性確認可找出處方、加工、調整或適應問題。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P046",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若顧客使用電腦時間很長，配鏡建議應特別注意什麼？",
+    "options": [
+      "工作距離、視線高度、鏡片用途與休息習慣",
+      "只問喜歡金色還銀色",
+      "一定推薦最深度數",
+      "完全不用問年齡"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "長時間電腦族需考量中距離視覺與姿勢需求。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P047",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "驗光紀錄中保留主訴與處方變化的價值是什麼？",
+    "options": [
+      "方便後續追蹤、溝通與問題排查",
+      "讓檔案看起來比較滿",
+      "只為了增加工作量",
+      "完全沒有用途"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "完整紀錄有助於服務連續性與後續追蹤。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P048",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "若顧客問：「為什麼兩家店驗出來不一樣？」較合適的回答是？",
+    "options": [
+      "測量條件、主觀反應與判斷策略可能造成差異，可進一步比較確認",
+      "一定是另一家錯",
+      "一定是我們錯",
+      "驗光完全沒有標準"
+    ],
+    "answerIndex": 0,
+    "difficulty": 2,
+    "explanation": "驗光結果可能受條件與主觀反應影響，需理性比較。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P049",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "服務過程中，哪一種說法較能建立專業信任？",
+    "options": [
+      "我先了解你的使用情境，再幫你判斷適合的選擇",
+      "這個最貴，所以一定最適合你",
+      "不要問那麼多，照我說的買",
+      "看起來差不多，隨便選"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "以需求評估為基礎的溝通更符合專業服務。",
+    "source": "自製",
+    "enabled": true
+  },
+  {
+    "id": "P050",
+    "category": "professional",
+    "mode": "視光修羅場",
+    "subtopic": "",
+    "question": "Samureye的視光修羅場最適合作為哪一種訓練？",
+    "options": [
+      "把基礎視光知識轉成情境判斷與服務反應",
+      "完全取代正式課程與臨床實習",
+      "只訓練背答案速度",
+      "只用來搞笑沒有學習意義"
+    ],
+    "answerIndex": 0,
+    "difficulty": 1,
+    "explanation": "視光修羅場重點是把知識放入情境，培養判斷與服務流程概念。",
+    "source": "自製",
+    "enabled": true
+  }
+]

@@ -10,14 +10,14 @@
     </header>
 
     <div class="home-card">
-      <button type="button" class="home-start-button" @click="$emit('open-matchmaking')">
-        玩家對戰
-      </button>
+      <div class="home-primary-row">
+        <button type="button" class="home-start-button" @click="$emit('open-stage-select')">關卡模式</button>
+        <button type="button" class="home-start-button" @click="$emit('open-matchmaking')">玩家對戰</button>
+      </div>
 
       <div class="home-menu-grid">
-        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-stage-select')">關卡模式</button>
-        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-study')">讀書強化</button>
-        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-character-select')">角色選擇</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-study')">知識道館</button>
+        <button type="button" class="home-menu-button home-menu-button-active" @click="$emit('open-character-select')">造型衣櫃</button>
         <div class="home-locked-button-wrap">
           <button
             type="button"
@@ -26,9 +26,21 @@
             :aria-disabled="!isSkillLoadoutUnlocked"
             @click="onSkillLoadoutClick"
           >
-            技能配置
+            晶片工坊
           </button>
           <div v-if="!isSkillLoadoutUnlocked" class="home-locked-overlay" aria-hidden="true">
+            <span class="home-locked-icon">🔒</span>
+          </div>
+        </div>
+        <div class="home-locked-button-wrap">
+          <button
+            type="button"
+            class="home-menu-button home-menu-button-active home-menu-button-locked"
+            aria-disabled="true"
+          >
+            強化中心
+          </button>
+          <div class="home-locked-overlay" aria-hidden="true">
             <span class="home-locked-icon">🔒</span>
           </div>
         </div>
