@@ -490,6 +490,7 @@ const FIREBASE_PROGRESS_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
+const NO_ENEMY_SKILLS = Object.freeze(Object.assign([], { __disableFallback: true }));
 const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
@@ -519,7 +520,7 @@ const firebaseSession = reactive({
   lastAuthenticatedAt: 0
 });
 const pvpNickname = ref('');
-const selectedStageId = ref(STAGE_IDS.STAGE_02);
+const selectedStageId = ref(STAGE_IDS.STAGE_01);
 const selectablePlayerSkills = computed(() => {
   return skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
 });
@@ -553,7 +554,8 @@ const playerConfig = reactive({
   equippedSkillIds: normalizedSkillPool.value.slice(0, MAX_SKILL_SLOTS).map(skill => skill.id)
 });
 const stageProgress = reactive({
-  clearedStageIds: []
+  clearedStageIds: [],
+  unlockedSkillIds: []
 });
 const tutorialState = reactive({
   active: false,
@@ -662,7 +664,7 @@ statusEffectEngine = createStatusEffectEngine({
 const selectedCharacter = computed(() => {
   return characters.find(item => item.id === playerConfig.characterId) ?? characters[0];
 });
-const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
+const isTutorialStage = computed(() => currentStageConfig.value.type === 'tutorial');
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
 const isPvpEndingFogPhase = computed(() => pvpEndUiState.phase === 'ending_fog');
 const isPvpResultLockedPhase = computed(() => pvpEndUiState.phase === 'result');
@@ -729,15 +731,18 @@ const isTutorialGuideActive = computed(() => {
 });
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
-  const unlocked = new Set(stageList.filter(stage => stage.unlockByDefault).map(stage => stage.id));
+  const unlocked = new Set(stageList
+    .filter(stage => !stage.requiredClearStageId)
+    .map(stage => stage.id));
   const cleared = clearedStageSet.value;
   let changed = true;
   while (changed) {
     changed = false;
     for (const stage of stageList) {
       if (unlocked.has(stage.id)) continue;
-      if (!stage.requiredClearStageId) continue;
-      if (cleared.has(stage.requiredClearStageId)) {
+      const requiredStageId = String(stage.requiredClearStageId ?? '').trim();
+      if (!requiredStageId) continue;
+      if (cleared.has(requiredStageId)) {
         unlocked.add(stage.id);
         changed = true;
       }
@@ -766,26 +771,64 @@ const selectedSkills = computed(() => {
   return filledIds.map(id => skillMap.get(id)).filter(Boolean);
 });
 
-function getEnemySkillPool() {
+function getDefaultEnemySkillPool() {
   if (currentStageConfig.value.enemySkillPoolType === 'tutorial') {
     return normalizedSkillPool.value.slice(0, 2);
   }
   return normalizedSkillPool.value;
 }
 
+function normalizeEnemySkillIdsSetting(rawValue) {
+  if (rawValue === null) return null;
+  if (!Array.isArray(rawValue)) return [];
+  const ids = rawValue
+    .map(id => String(id ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function getEnemySkillPool() {
+  const enemySkillIds = normalizeEnemySkillIdsSetting(currentStageConfig.value.enemySkillIds);
+  if (enemySkillIds === null) {
+    return NO_ENEMY_SKILLS;
+  }
+
+  const defaultPool = getDefaultEnemySkillPool();
+  if (enemySkillIds.length <= 0) {
+    return defaultPool;
+  }
+
+  const idSet = new Set(enemySkillIds);
+  const stagePool = defaultPool.filter(skill => idSet.has(skill.id));
+  return Object.assign(stagePool, { __disableFallback: true });
+}
+
+function getCurrentStageEnemySettings() {
+  const stage = currentStageConfig.value ?? {};
+  return {
+    enemyHp: Math.max(1, Math.round(sanitizeNumber(stage.enemyHp, GAME_CONFIG.maxHp))),
+    enemyDamage: Math.max(1, Math.round(sanitizeNumber(stage.enemyDamage, GAME_CONFIG.enemyAttackDamage))),
+    enemyAttackIntervalMs: Math.max(300, Math.round(sanitizeNumber(stage.enemyAttackIntervalMs, 600))),
+    enemyAttackIntervalVarianceMs: Math.max(0, Math.round(sanitizeNumber(stage.enemyAttackIntervalVarianceMs, 0))),
+    enemyMissRate: Math.max(0, Math.min(0.95, sanitizeNumber(stage.enemyMissRate, 0))),
+    enemyCriticalRate: Math.max(0, Math.min(1, sanitizeNumber(stage.enemyCriticalRate, 0))),
+    enemyCriticalMultiplier: Math.max(1, sanitizeNumber(stage.enemyCriticalMultiplier, 1)),
+    enemySkillCastIntervalMs: Math.max(1000, Math.round(sanitizeNumber(stage.enemySkillCastIntervalMs, 3000))),
+    enemySkillCastVarianceMs: Math.max(0, Math.round(sanitizeNumber(stage.enemySkillCastVarianceMs, 0))),
+    enemySkillCastChance: Math.max(0, Math.min(1, sanitizeNumber(stage.enemySkillCastChance, 0))),
+    enemySkillStartDelayMs: Math.max(0, Math.round(sanitizeNumber(stage.enemySkillStartDelayMs, 1200)))
+  };
+}
+
 function getStandardBattleProgression() {
   const optometryLv = studyState.tracks.optometry.level;
   const opticsLv = studyState.tracks.optics.level;
   const contactLv = studyState.tracks.contactLens.level;
-  const otherLv = studyState.tracks.other.level;
 
   return {
     maxHp: GAME_CONFIG.maxHp + (opticsLv * 20),
     targetHitDamage: GAME_CONFIG.targetHitDamage + optometryLv,
-    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit + contactLv,
-    enemyAttackChancePerTick: GAME_CONFIG.enemyAttackChancePerTick - (otherLv * 0.005),
-    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage - (otherLv * 0.8),
-    enemyUltChancePerTick: GAME_CONFIG.enemyUltChancePerTick - (otherLv * 0.0015)
+    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit + contactLv
   };
 }
 
@@ -794,9 +837,17 @@ function getPvpBattleProgression() {
     maxHp: GAME_CONFIG.maxHp,
     targetHitDamage: GAME_CONFIG.targetHitDamage,
     skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
-    enemyAttackChancePerTick: 0,
-    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage,
-    enemyUltChancePerTick: 0
+    enemyHp: GAME_CONFIG.maxHp,
+    enemyDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyAttackIntervalMs: 600,
+    enemyAttackIntervalVarianceMs: 0,
+    enemyMissRate: 0,
+    enemyCriticalRate: 0,
+    enemyCriticalMultiplier: 1,
+    enemySkillCastIntervalMs: 3000,
+    enemySkillCastVarianceMs: 0,
+    enemySkillCastChance: 0,
+    enemySkillStartDelayMs: 0
   };
 }
 
@@ -805,11 +856,10 @@ function getBattleProgression() {
     return getPvpBattleProgression();
   }
 
-  if (currentStageConfig.value.progressionType === 'tutorial') {
-    return currentStageConfig.value.battleStats ?? getStandardBattleProgression();
-  }
-
-  return getStandardBattleProgression();
+  return {
+    ...getStandardBattleProgression(),
+    ...getCurrentStageEnemySettings()
+  };
 }
 
 function shouldSkipTutorialRoundIntro() {
@@ -1057,7 +1107,8 @@ function buildDefaultStudyData() {
       equippedSkillIds: normalizedSkillPool.value.slice(0, MAX_SKILL_SLOTS).map(skill => skill.id)
     },
     stageProgress: {
-      clearedStageIds: []
+      clearedStageIds: [],
+      unlockedSkillIds: []
     }
   };
 }
@@ -1074,8 +1125,16 @@ function normalizeStudyData(rawData = {}) {
   const dedupedSkillIds = buildFilledSkillIds(rawPlayerConfig.equippedSkillIds);
   const normalizedCharacter = characters.find(item => item.id === rawPlayerConfig.characterId)?.id ?? characters[0].id;
   const availableStageIds = new Set(stageList.map(stage => stage.id));
+  const availableSkillIds = new Set(skillPool.map(skill => skill.id));
   const clearedStageIds = Array.isArray(rawStageProgress.clearedStageIds)
     ? [...new Set(rawStageProgress.clearedStageIds.filter(id => availableStageIds.has(id)))]
+    : [];
+  const unlockedSkillIds = Array.isArray(rawStageProgress.unlockedSkillIds)
+    ? [...new Set(
+      rawStageProgress.unlockedSkillIds
+        .map(id => String(id ?? '').trim())
+        .filter(id => availableSkillIds.has(id))
+    )]
     : [];
 
   return {
@@ -1094,7 +1153,8 @@ function normalizeStudyData(rawData = {}) {
       equippedSkillIds: dedupedSkillIds
     },
     stageProgress: {
-      clearedStageIds
+      clearedStageIds,
+      unlockedSkillIds
     }
   };
 }
@@ -1112,6 +1172,7 @@ function applyStudyData(nextData) {
   playerConfig.characterId = data.playerConfig.characterId;
   playerConfig.equippedSkillIds = data.playerConfig.equippedSkillIds;
   stageProgress.clearedStageIds = data.stageProgress.clearedStageIds;
+  stageProgress.unlockedSkillIds = data.stageProgress.unlockedSkillIds;
   syncStudyDailyKnowledgeDate();
 }
 
@@ -1133,7 +1194,8 @@ function snapshotStudyData() {
       equippedSkillIds: playerConfig.equippedSkillIds
     },
     stageProgress: {
-      clearedStageIds: stageProgress.clearedStageIds
+      clearedStageIds: stageProgress.clearedStageIds,
+      unlockedSkillIds: stageProgress.unlockedSkillIds
     }
   };
 }
@@ -1374,7 +1436,8 @@ function normalizeRemoteProgressPayload(rawProgress = {}) {
     stageProgress: {
       clearedStageIds: Array.isArray(stage.clearedStageIds)
         ? [...new Set(stage.clearedStageIds.map(id => String(id ?? '').trim()).filter(Boolean))]
-        : []
+        : [],
+      unlockedSkillIds: normalizeSkillIdList(stage.unlockedSkillIds)
     },
     questionProgress: {
       answered: normalizedAnswered,
@@ -1410,7 +1473,8 @@ function buildRemoteProgressPayloadFromLocalState() {
       dailyKnowledgePointsDate: normalized.dailyKnowledge.dateKey
     },
     stageProgress: {
-      clearedStageIds: normalized.stageProgress.clearedStageIds
+      clearedStageIds: normalized.stageProgress.clearedStageIds,
+      unlockedSkillIds: normalizeSkillIdList(normalized.stageProgress.unlockedSkillIds)
     },
     questionProgress: {
       answered: normalized.answered,
@@ -1438,7 +1502,8 @@ function buildDefaultRemoteProgressPayload() {
       dailyKnowledgePointsDate: defaults.dailyKnowledge.dateKey
     },
     stageProgress: {
-      clearedStageIds: []
+      clearedStageIds: [],
+      unlockedSkillIds: []
     },
     questionProgress: {
       answered: 0,
@@ -1461,7 +1526,8 @@ function buildStudyDataFromRemoteProgress(rawProgress = {}) {
       equippedSkillIds: progress.equippedSkills
     },
     stageProgress: {
-      clearedStageIds: progress.stageProgress.clearedStageIds
+      clearedStageIds: progress.stageProgress.clearedStageIds,
+      unlockedSkillIds: progress.stageProgress.unlockedSkillIds
     }
   });
 }
@@ -5244,9 +5310,14 @@ watch(gameState, (next, prev) => {
   if (prev === 'gameResult' || next !== 'gameResult') return;
   if (isCurrentBattlePvP.value) return;
   if (currentBattleOutcome.value !== 'win') return;
-  if (!stageList.some(stage => stage.id === selectedStageId.value)) return;
-  if (stageProgress.clearedStageIds.includes(selectedStageId.value)) return;
-  stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, selectedStageId.value];
+  const stage = currentStageConfig.value;
+  if (!stage || !stageList.some(item => item.id === stage.id)) return;
+
+  const alreadyCleared = stageProgress.clearedStageIds.includes(stage.id);
+  applyPveStageVictoryRewards(stage, { isFirstClear: !alreadyCleared });
+  if (alreadyCleared) return;
+
+  stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, stage.id];
 });
 
 watch(
@@ -5418,6 +5489,33 @@ function selectStageAndStart(stageId) {
   if (!unlockedStageSet.value.has(stageId)) return;
   selectedStageId.value = stageId;
   startBattle();
+}
+
+function normalizeStageUnlockSkillIds(stage = null) {
+  if (!stage || typeof stage !== 'object') return [];
+  if (!Array.isArray(stage.unlockSkillIds)) return [];
+  const validSkillIds = new Set(skillPool.map(skill => skill.id));
+  const ids = stage.unlockSkillIds
+    .map(id => String(id ?? '').trim())
+    .filter(id => validSkillIds.has(id));
+  return [...new Set(ids)];
+}
+
+function applyPveStageVictoryRewards(stage = null, { isFirstClear = false } = {}) {
+  if (!stage || typeof stage !== 'object') return;
+  const rewardSp = Math.max(0, Math.floor(sanitizeNumber(stage.rewardSp, 0)));
+  if (rewardSp > 0) {
+    studyState.knowledgePoints += rewardSp;
+  }
+
+  if (!isFirstClear) return;
+  const unlockSkillIds = normalizeStageUnlockSkillIds(stage);
+  if (unlockSkillIds.length <= 0) return;
+
+  stageProgress.unlockedSkillIds = [...new Set([
+    ...stageProgress.unlockedSkillIds,
+    ...unlockSkillIds
+  ])];
 }
 
 function openBattleMenu() {
