@@ -66,15 +66,30 @@ export function useBattleGame({
     maxHp: GAME_CONFIG.maxHp,
     targetHitDamage: GAME_CONFIG.targetHitDamage,
     skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
-    enemyAttackChancePerTick: GAME_CONFIG.enemyAttackChancePerTick,
-    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage,
-    enemyUltChancePerTick: GAME_CONFIG.enemyUltChancePerTick
+    enemyHp: GAME_CONFIG.maxHp,
+    enemyDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyAttackIntervalMs: 600,
+    enemyAttackIntervalVarianceMs: 0,
+    enemyMissRate: 0,
+    enemyCriticalRate: 0,
+    enemyCriticalMultiplier: 1,
+    enemySkillCastIntervalMs: 3000,
+    enemySkillCastVarianceMs: 0,
+    enemySkillCastChance: 0,
+    enemySkillStartDelayMs: 1200
   });
 
   let timerInterval = null;
   const runToken = ref(0);
   const asyncTimeouts = new Set();
   const asyncIntervals = new Set();
+  const MIN_ENEMY_ATTACK_INTERVAL_MS = 300;
+  const MIN_ENEMY_SKILL_CAST_INTERVAL_MS = 1000;
+  const ENEMY_SKILL_NO_FALLBACK_FLAG = '__disableFallback';
+  let enemyAttackElapsedMs = 0;
+  let enemyAttackNextIntervalMs = MIN_ENEMY_ATTACK_INTERVAL_MS;
+  let enemySkillElapsedMs = 0;
+  let enemySkillNextIntervalMs = MIN_ENEMY_SKILL_CAST_INTERVAL_MS;
 
   function scheduleTimeout(callback, delay) {
     const id = setTimeout(() => {
@@ -212,6 +227,116 @@ export function useBattleGame({
     if (deltaSec <= 0) return;
     tickCooldownMap(playerSkillCooldowns, deltaSec);
     tickCooldownMap(enemySkillCooldowns, deltaSec);
+  }
+
+  function clampNumber(value, min, max, fallback = 0) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function resolveRandomizedIntervalMs(baseMs, varianceMs, minMs = 0) {
+    const base = Math.max(0, Math.round(Number(baseMs) || 0));
+    const variance = Math.max(0, Math.round(Number(varianceMs) || 0));
+    if (variance <= 0) return Math.max(minMs, base);
+    const offset = Math.round((Math.random() * (variance * 2)) - variance);
+    return Math.max(minMs, base + offset);
+  }
+
+  function scheduleNextEnemyAttackInterval() {
+    enemyAttackNextIntervalMs = resolveRandomizedIntervalMs(
+      battleStats.enemyAttackIntervalMs,
+      battleStats.enemyAttackIntervalVarianceMs,
+      MIN_ENEMY_ATTACK_INTERVAL_MS
+    );
+  }
+
+  function scheduleNextEnemySkillAttemptInterval({ first = false } = {}) {
+    if (first) {
+      enemySkillNextIntervalMs = Math.max(0, Math.round(Number(battleStats.enemySkillStartDelayMs) || 0));
+      return;
+    }
+
+    enemySkillNextIntervalMs = resolveRandomizedIntervalMs(
+      battleStats.enemySkillCastIntervalMs,
+      battleStats.enemySkillCastVarianceMs,
+      MIN_ENEMY_SKILL_CAST_INTERVAL_MS
+    );
+  }
+
+  function resetEnemyRhythmSchedulers() {
+    enemyAttackElapsedMs = 0;
+    enemySkillElapsedMs = 0;
+    scheduleNextEnemyAttackInterval();
+    scheduleNextEnemySkillAttemptInterval({ first: true });
+  }
+
+  function runEnemyNormalAttackOnce() {
+    const missRate = clampNumber(battleStats.enemyMissRate, 0, 0.95, 0);
+    if (Math.random() < missRate) {
+      return;
+    }
+
+    const criticalRate = clampNumber(battleStats.enemyCriticalRate, 0, 1, 0);
+    const criticalMultiplier = Math.max(1, Number(battleStats.enemyCriticalMultiplier) || 1);
+    const baseDamage = Math.max(1, Math.round(Number(battleStats.enemyDamage) || 1));
+    const isCritical = Math.random() < criticalRate;
+    const finalDamage = isCritical
+      ? Math.max(1, Math.round(baseDamage * criticalMultiplier))
+      : baseDamage;
+
+    enemyRoundHits.value += 1;
+    damagePlayer(finalDamage);
+    triggerImpactShake(Math.random() * 360, isCritical ? 12 : 10);
+    vibrate(isCritical ? [16, 10, 16] : 16);
+    sfx.playHit();
+
+    if (playerHp.value <= 0) {
+      triggerSlowMotionFinish();
+    }
+  }
+
+  function tickEnemyAttackPattern() {
+    if (gameState.value !== 'playing' || isPaused.value) return;
+    if (enemyDebuff.value) return;
+    enemyAttackElapsedMs += GAME_CONFIG.tickMs;
+    if (enemyAttackElapsedMs < enemyAttackNextIntervalMs) return;
+
+    enemyAttackElapsedMs = Math.max(0, enemyAttackElapsedMs - enemyAttackNextIntervalMs);
+    runEnemyNormalAttackOnce();
+    scheduleNextEnemyAttackInterval();
+  }
+
+  function shouldDisableEnemySkillFallback(pool) {
+    return Boolean(pool && pool[ENEMY_SKILL_NO_FALLBACK_FLAG] === true);
+  }
+
+  function pickEffectiveEnemySkillPool() {
+    const resolvedPool = typeof getEnemySkillPool === 'function' ? getEnemySkillPool() : null;
+    const fallbackDisabled = shouldDisableEnemySkillFallback(resolvedPool);
+    const hasArrayPool = Array.isArray(resolvedPool);
+    if (!hasArrayPool) return enemySkills;
+    if (resolvedPool.length <= 0 && !fallbackDisabled) return enemySkills;
+    return resolvedPool;
+  }
+
+  function tickEnemySkillPattern() {
+    if (gameState.value !== 'playing' || isPaused.value) return;
+    enemySkillElapsedMs += GAME_CONFIG.tickMs;
+    if (enemySkillElapsedMs < enemySkillNextIntervalMs) return;
+    enemySkillElapsedMs = Math.max(0, enemySkillElapsedMs - enemySkillNextIntervalMs);
+    scheduleNextEnemySkillAttemptInterval();
+
+    if (enemyDebuff.value) return;
+    if (isSkillSequenceActive.value) return;
+    if (timeLeft.value <= 1.5) return;
+
+    const chance = clampNumber(battleStats.enemySkillCastChance, 0, 1, 0);
+    if (Math.random() >= chance) return;
+
+    const pool = pickEffectiveEnemySkillPool();
+    if (!Array.isArray(pool) || pool.length <= 0) return;
+    void useEnemyUlt(pool);
   }
 
   function vibrate(pattern) {
@@ -431,22 +556,8 @@ export function useBattleGame({
       }
 
       if (!isPvpMode()) {
-        if (Math.random() < battleStats.enemyAttackChancePerTick && !enemyDebuff.value) {
-          enemyRoundHits.value++;
-          damagePlayer(battleStats.enemyAttackDamage);
-          triggerImpactShake(Math.random() * 360, 10);
-          vibrate(16);
-          sfx.playHit();
-
-          if (playerHp.value <= 0) {
-            triggerSlowMotionFinish();
-            return;
-          }
-        }
-  
-        if (Math.random() < battleStats.enemyUltChancePerTick && !enemyDebuff.value && timeLeft.value > 1.5) {
-          useEnemyUlt();
-        }
+        tickEnemyAttackPattern();
+        tickEnemySkillPattern();
       }
 
       if (!disableRoundTimer && timeLeft.value <= 0) {
@@ -615,11 +726,11 @@ export function useBattleGame({
     });
   }
 
-  async function useEnemyUlt() {
+  async function useEnemyUlt(skillPoolOverride = null) {
     if (isPaused.value || gameState.value !== 'playing') return;
     if (enemyDebuff.value === 'cataract') return;
-    const pool = typeof getEnemySkillPool === 'function' ? getEnemySkillPool() : enemySkills;
-    const normalizedPool = Array.isArray(pool) && pool.length > 0 ? pool : enemySkills;
+    const pool = Array.isArray(skillPoolOverride) ? skillPoolOverride : pickEffectiveEnemySkillPool();
+    const normalizedPool = Array.isArray(pool) ? pool : enemySkills;
     const availableSkills = normalizedPool.filter(skill => getCooldownLeft(enemySkillCooldowns, skill.id) <= 0);
     if (!availableSkills.length) return;
 
@@ -700,14 +811,38 @@ export function useBattleGame({
 
   function applyBattleProgression(stats = {}) {
     const nextPlayerMaxHp = Math.max(120, Math.round(stats.maxHp ?? GAME_CONFIG.maxHp));
+    const nextEnemyMaxHp = Math.max(1, Math.round(stats.enemyHp ?? GAME_CONFIG.maxHp));
+    const legacyAttackChance = clampNumber(stats.enemyAttackChancePerTick, 0, 1, 0);
+    const legacySkillChance = clampNumber(stats.enemyUltChancePerTick, 0, 1, 0);
+    const fallbackAttackIntervalMs = legacyAttackChance > 0
+      ? Math.max(MIN_ENEMY_ATTACK_INTERVAL_MS, Math.round(GAME_CONFIG.tickMs / legacyAttackChance))
+      : 600;
+    const fallbackSkillIntervalMs = legacySkillChance > 0
+      ? Math.max(MIN_ENEMY_SKILL_CAST_INTERVAL_MS, Math.round(GAME_CONFIG.tickMs / legacySkillChance))
+      : 3000;
+
     playerMaxHp.value = nextPlayerMaxHp;
-    enemyMaxHp.value = GAME_CONFIG.maxHp;
+    enemyMaxHp.value = nextEnemyMaxHp;
     battleStats.maxHp = nextPlayerMaxHp;
     battleStats.targetHitDamage = Math.max(1, Math.round(stats.targetHitDamage ?? GAME_CONFIG.targetHitDamage));
     battleStats.skillPointGainPerHit = Math.max(1, Math.round(stats.skillPointGainPerHit ?? GAME_CONFIG.skillPointGainPerHit));
-    battleStats.enemyAttackChancePerTick = Math.max(0, Math.min(0.5, Number(stats.enemyAttackChancePerTick ?? GAME_CONFIG.enemyAttackChancePerTick)));
-    battleStats.enemyAttackDamage = Math.max(1, Math.round(stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
-    battleStats.enemyUltChancePerTick = Math.max(0, Math.min(0.25, Number(stats.enemyUltChancePerTick ?? GAME_CONFIG.enemyUltChancePerTick)));
+    battleStats.enemyHp = nextEnemyMaxHp;
+    battleStats.enemyDamage = Math.max(1, Math.round(stats.enemyDamage ?? stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
+    battleStats.enemyAttackIntervalMs = Math.max(
+      MIN_ENEMY_ATTACK_INTERVAL_MS,
+      Math.round(stats.enemyAttackIntervalMs ?? fallbackAttackIntervalMs)
+    );
+    battleStats.enemyAttackIntervalVarianceMs = Math.max(0, Math.round(stats.enemyAttackIntervalVarianceMs ?? 0));
+    battleStats.enemyMissRate = clampNumber(stats.enemyMissRate, 0, 0.95, 0);
+    battleStats.enemyCriticalRate = clampNumber(stats.enemyCriticalRate, 0, 1, 0);
+    battleStats.enemyCriticalMultiplier = Math.max(1, Number(stats.enemyCriticalMultiplier ?? 1));
+    battleStats.enemySkillCastIntervalMs = Math.max(
+      MIN_ENEMY_SKILL_CAST_INTERVAL_MS,
+      Math.round(stats.enemySkillCastIntervalMs ?? fallbackSkillIntervalMs)
+    );
+    battleStats.enemySkillCastVarianceMs = Math.max(0, Math.round(stats.enemySkillCastVarianceMs ?? 0));
+    battleStats.enemySkillCastChance = clampNumber(stats.enemySkillCastChance, 0, 1, legacySkillChance);
+    battleStats.enemySkillStartDelayMs = Math.max(0, Math.round(stats.enemySkillStartDelayMs ?? 1200));
   }
 
   function initGame() {
@@ -718,6 +853,7 @@ export function useBattleGame({
     } else {
       applyBattleProgression();
     }
+    resetEnemyRhythmSchedulers();
 
     currentRound.value = 1;
     playerHp.value = playerMaxHp.value;

@@ -3,7 +3,7 @@
     <div class="hud-top enemy-hud-row breathing">
       <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
         <div class="mini-row">
-          <span>Opponent: Master HOU</span>
+          <span>{{ opponentLabelText }}</span>
           <span class="enemy-stat">HITS: {{ opponentRoundHits }}</span>
         </div>
 
@@ -60,7 +60,7 @@
         </div>
         <div id="player-hp-anchor" class="pixel-border player-panel">
         <div class="mini-row">
-          <span>SAMUREYE (You)</span>
+          <span>{{ playerLabelText }}</span>
           <span class="combo-stat">COMBO: {{ combo }}</span>
         </div>
 
@@ -85,6 +85,14 @@ const props = defineProps({
   playerAvatarUrl: {
     type: String,
     required: true
+  },
+  playerName: {
+    type: String,
+    default: 'SAMUREYE'
+  },
+  opponentName: {
+    type: String,
+    default: '對手'
   },
   playerMaxHp: {
     type: Number,
@@ -148,6 +156,14 @@ defineEmits(['use-skill']);
 
 const opponentHpPercent = computed(() => `${props.opponentHp / props.opponentMaxHp * 100}%`);
 const playerHpPercent = computed(() => `${props.playerHp / props.playerMaxHp * 100}%`);
+const playerLabelText = computed(() => {
+  const text = String(props.playerName ?? '').trim();
+  return text || 'SAMUREYE';
+});
+const opponentLabelText = computed(() => {
+  const text = String(props.opponentName ?? '').trim();
+  return text || '對手';
+});
 
 function getSkillCooldownLeft(skillId) {
   return Math.max(0, Number(props.skillCooldowns?.[skillId] ?? 0));

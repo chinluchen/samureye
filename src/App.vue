@@ -77,6 +77,8 @@
 
         <HudLayer
           :player-avatar-url="selectedCharacter.avatarUrl"
+          :player-name="battleHudPlayerName"
+          :opponent-name="battleHudOpponentName"
           :player-max-hp="playerMaxHp"
           :opponent-max-hp="opponentMaxHp"
           :player-hp="playerHp"
@@ -94,9 +96,9 @@
           @use-skill="handlePlayerSkillUse"
         />
 
-        <TutorialGuideOverlay
+        <StoryOverlay
           v-if="isTutorialGuideActive && !isBattleMenuOpen"
-          :step="tutorialState.step"
+          :meta="currentStoryStepMeta"
           :progress-count="tutorialHitProgress"
           :required-hits="tutorialState.requiredHits"
           :focus-rect="tutorialFocusRect"
@@ -238,6 +240,7 @@ import { createSkillLifecycleEngine } from './engines/SkillLifecycleEngine.js';
 import { createSkillVisualEngine } from './engines/SkillVisualEngine.js';
 import { createStatusEffectEngine } from './engines/StatusEffectEngine.js';
 import { useBattleGame } from './composables/useBattleGame.js';
+import { useStoryFlow } from './composables/useStoryFlow.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
 import { drawSlashLine, showDamagePopup, showFeedbackPop, triggerImpactShake } from './utils/effects.js';
 import { sfx } from './services/SoundEngine.js';
@@ -266,7 +269,7 @@ import CharacterSelectScreen from './components/CharacterSelectScreen.vue';
 import SkillLoadoutScreen from './components/SkillLoadoutScreen.vue';
 import StageSelectScreen from './components/StageSelectScreen.vue';
 import LeaderboardScreen from './components/LeaderboardScreen.vue';
-import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
+import StoryOverlay from './components/StoryOverlay.vue';
 import IntroOpeningScreen from './components/IntroOpeningScreen.vue';
 
 const currentScreen = ref('introOpening');
@@ -490,6 +493,7 @@ const FIREBASE_PROGRESS_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
+const NO_ENEMY_SKILLS = Object.freeze(Object.assign([], { __disableFallback: true }));
 const stageList = stageConfigs;
 let hasMigratedStorage = false;
 let hasHydratedRuntimeSettings = false;
@@ -519,7 +523,7 @@ const firebaseSession = reactive({
   lastAuthenticatedAt: 0
 });
 const pvpNickname = ref('');
-const selectedStageId = ref(STAGE_IDS.STAGE_02);
+const selectedStageId = ref(STAGE_IDS.STAGE_01);
 const selectablePlayerSkills = computed(() => {
   return skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
 });
@@ -553,17 +557,10 @@ const playerConfig = reactive({
   equippedSkillIds: normalizedSkillPool.value.slice(0, MAX_SKILL_SLOTS).map(skill => skill.id)
 });
 const stageProgress = reactive({
-  clearedStageIds: []
+  clearedStageIds: [],
+  unlockedSkillIds: []
 });
-const tutorialState = reactive({
-  active: false,
-  step: 'focus',
-  requiredHits: 3,
-  hitBaseline: 0,
-  hasGrantedMp: false,
-  completed: false
-});
-const tutorialFocusRect = ref(null);
+let storyFlow = null;
 const game = useBattleGame({
   autoStart: false,
   getBattleProgression,
@@ -662,7 +659,7 @@ statusEffectEngine = createStatusEffectEngine({
 const selectedCharacter = computed(() => {
   return characters.find(item => item.id === playerConfig.characterId) ?? characters[0];
 });
-const isTutorialStage = computed(() => currentStageConfig.value.id === STAGE_IDS.STAGE_01);
+const isTutorialStage = computed(() => currentStageConfig.value.type === 'tutorial');
 const isCurrentBattlePvP = computed(() => battleSessionMode.value === 'pvp');
 const isPvpEndingFogPhase = computed(() => pvpEndUiState.phase === 'ending_fog');
 const isPvpResultLockedPhase = computed(() => pvpEndUiState.phase === 'result');
@@ -721,23 +718,20 @@ const shouldShowBattleMenuTrigger = computed(() => {
   return true;
 });
 const isTutorialUntimed = computed(() => isTutorialStage.value);
-const tutorialHitProgress = computed(() => {
-  return Math.max(0, playerTotalHits.value - tutorialState.hitBaseline);
-});
-const isTutorialGuideActive = computed(() => {
-  return currentScreen.value === 'battle' && isTutorialStage.value && tutorialState.active;
-});
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
-  const unlocked = new Set(stageList.filter(stage => stage.unlockByDefault).map(stage => stage.id));
+  const unlocked = new Set(stageList
+    .filter(stage => !stage.requiredClearStageId)
+    .map(stage => stage.id));
   const cleared = clearedStageSet.value;
   let changed = true;
   while (changed) {
     changed = false;
     for (const stage of stageList) {
       if (unlocked.has(stage.id)) continue;
-      if (!stage.requiredClearStageId) continue;
-      if (cleared.has(stage.requiredClearStageId)) {
+      const requiredStageId = String(stage.requiredClearStageId ?? '').trim();
+      if (!requiredStageId) continue;
+      if (cleared.has(requiredStageId)) {
         unlocked.add(stage.id);
         changed = true;
       }
@@ -766,26 +760,112 @@ const selectedSkills = computed(() => {
   return filledIds.map(id => skillMap.get(id)).filter(Boolean);
 });
 
-function getEnemySkillPool() {
+function sanitizeBattleHudName(value = '', fallback = '') {
+  const text = String(value ?? '').trim();
+  if (text) return text;
+  return String(fallback ?? '').trim();
+}
+
+const battleHudPlayerName = computed(() => {
+  return sanitizeBattleHudName(resolveLocalPvpDisplayName(), 'SAMUREYE');
+});
+
+const battleHudOpponentName = computed(() => {
+  if (isCurrentBattlePvP.value) {
+    const opponentName = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.displayName, '');
+    const opponentGcName = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.gameCenterDisplayName, '');
+    const opponentAlias = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.alias, '');
+    return opponentName || opponentGcName || opponentAlias || '對手連線中';
+  }
+
+  const stageMonsterName = sanitizeBattleHudName(currentStageConfig.value?.monsterName, '');
+  const stageLabelName = sanitizeBattleHudName(currentStageConfig.value?.label, '');
+  return stageMonsterName || stageLabelName || '怪物';
+});
+
+storyFlow = useStoryFlow({
+  currentScreen,
+  isTutorialStage,
+  isTutorialUntimed,
+  playerTotalHits,
+  playerName: battleHudPlayerName,
+  setPaused,
+  grantSkillPoints: (nextValue = 0) => {
+    skillPoints.value = Math.max(0, Math.round(Number(nextValue) || 0));
+  }
+});
+
+const {
+  storyState: tutorialState,
+  storyFocusRect: tutorialFocusRect,
+  storyHitProgress: tutorialHitProgress,
+  isStoryGuideActive: isTutorialGuideActive,
+  currentStoryStepMeta,
+  resetStoryState: resetStoryStateInternal,
+  beginStoryGuide: beginStoryGuideInternal,
+  advanceStoryStep: advanceStoryStepInternal,
+  tryAdvancePracticeStep,
+  updateStoryFocusRectFromTarget: updateStoryFocusRectFromTargetInternal
+} = storyFlow;
+
+function getDefaultEnemySkillPool() {
   if (currentStageConfig.value.enemySkillPoolType === 'tutorial') {
     return normalizedSkillPool.value.slice(0, 2);
   }
   return normalizedSkillPool.value;
 }
 
+function normalizeEnemySkillIdsSetting(rawValue) {
+  if (rawValue === null) return null;
+  if (!Array.isArray(rawValue)) return [];
+  const ids = rawValue
+    .map(id => String(id ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function getEnemySkillPool() {
+  const enemySkillIds = normalizeEnemySkillIdsSetting(currentStageConfig.value.enemySkillIds);
+  if (enemySkillIds === null) {
+    return NO_ENEMY_SKILLS;
+  }
+
+  const defaultPool = getDefaultEnemySkillPool();
+  if (enemySkillIds.length <= 0) {
+    return defaultPool;
+  }
+
+  const idSet = new Set(enemySkillIds);
+  const stagePool = defaultPool.filter(skill => idSet.has(skill.id));
+  return Object.assign(stagePool, { __disableFallback: true });
+}
+
+function getCurrentStageEnemySettings() {
+  const stage = currentStageConfig.value ?? {};
+  return {
+    enemyHp: Math.max(1, Math.round(sanitizeNumber(stage.enemyHp, GAME_CONFIG.maxHp))),
+    enemyDamage: Math.max(1, Math.round(sanitizeNumber(stage.enemyDamage, GAME_CONFIG.enemyAttackDamage))),
+    enemyAttackIntervalMs: Math.max(300, Math.round(sanitizeNumber(stage.enemyAttackIntervalMs, 600))),
+    enemyAttackIntervalVarianceMs: Math.max(0, Math.round(sanitizeNumber(stage.enemyAttackIntervalVarianceMs, 0))),
+    enemyMissRate: Math.max(0, Math.min(0.95, sanitizeNumber(stage.enemyMissRate, 0))),
+    enemyCriticalRate: Math.max(0, Math.min(1, sanitizeNumber(stage.enemyCriticalRate, 0))),
+    enemyCriticalMultiplier: Math.max(1, sanitizeNumber(stage.enemyCriticalMultiplier, 1)),
+    enemySkillCastIntervalMs: Math.max(1000, Math.round(sanitizeNumber(stage.enemySkillCastIntervalMs, 3000))),
+    enemySkillCastVarianceMs: Math.max(0, Math.round(sanitizeNumber(stage.enemySkillCastVarianceMs, 0))),
+    enemySkillCastChance: Math.max(0, Math.min(1, sanitizeNumber(stage.enemySkillCastChance, 0))),
+    enemySkillStartDelayMs: Math.max(0, Math.round(sanitizeNumber(stage.enemySkillStartDelayMs, 1200)))
+  };
+}
+
 function getStandardBattleProgression() {
   const optometryLv = studyState.tracks.optometry.level;
   const opticsLv = studyState.tracks.optics.level;
   const contactLv = studyState.tracks.contactLens.level;
-  const otherLv = studyState.tracks.other.level;
 
   return {
     maxHp: GAME_CONFIG.maxHp + (opticsLv * 20),
     targetHitDamage: GAME_CONFIG.targetHitDamage + optometryLv,
-    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit + contactLv,
-    enemyAttackChancePerTick: GAME_CONFIG.enemyAttackChancePerTick - (otherLv * 0.005),
-    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage - (otherLv * 0.8),
-    enemyUltChancePerTick: GAME_CONFIG.enemyUltChancePerTick - (otherLv * 0.0015)
+    skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit + contactLv
   };
 }
 
@@ -794,9 +874,17 @@ function getPvpBattleProgression() {
     maxHp: GAME_CONFIG.maxHp,
     targetHitDamage: GAME_CONFIG.targetHitDamage,
     skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
-    enemyAttackChancePerTick: 0,
-    enemyAttackDamage: GAME_CONFIG.enemyAttackDamage,
-    enemyUltChancePerTick: 0
+    enemyHp: GAME_CONFIG.maxHp,
+    enemyDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyAttackIntervalMs: 600,
+    enemyAttackIntervalVarianceMs: 0,
+    enemyMissRate: 0,
+    enemyCriticalRate: 0,
+    enemyCriticalMultiplier: 1,
+    enemySkillCastIntervalMs: 3000,
+    enemySkillCastVarianceMs: 0,
+    enemySkillCastChance: 0,
+    enemySkillStartDelayMs: 0
   };
 }
 
@@ -805,171 +893,45 @@ function getBattleProgression() {
     return getPvpBattleProgression();
   }
 
-  if (currentStageConfig.value.progressionType === 'tutorial') {
-    return currentStageConfig.value.battleStats ?? getStandardBattleProgression();
-  }
-
-  return getStandardBattleProgression();
+  return {
+    ...getStandardBattleProgression(),
+    ...getCurrentStageEnemySettings()
+  };
 }
 
 function shouldSkipTutorialRoundIntro() {
-  return isTutorialStage.value;
+  if (!storyFlow) return Boolean(isTutorialStage.value);
+  return storyFlow.shouldSkipRoundIntro();
 }
 
 function shouldUseUntimedTutorial() {
-  return isTutorialUntimed.value;
+  if (!storyFlow) return Boolean(isTutorialUntimed.value);
+  return storyFlow.shouldDisableRoundTimer();
 }
 
 function getTutorialForcedTargetId() {
-  if (!isTutorialStage.value) return null;
-  if (tutorialState.completed) return null;
-  if (tutorialState.step === 'focus' || tutorialState.step === 'gesture') return 'right';
-  if (tutorialState.step === 'practice') {
-    const tutorialDirections = ['right', 'down', 'up-left'];
-    const index = Math.max(0, Math.min(tutorialDirections.length - 1, tutorialHitProgress.value));
-    return tutorialDirections[index];
-  }
-  return null;
+  if (!storyFlow) return null;
+  return storyFlow.getForcedTargetId();
 }
 
 function resetTutorialState() {
-  tutorialState.active = false;
-  tutorialState.step = 'focus';
-  tutorialState.requiredHits = 3;
-  tutorialState.hitBaseline = 0;
-  tutorialState.hasGrantedMp = false;
-  tutorialState.completed = false;
-  tutorialFocusRect.value = null;
+  if (!storyFlow) return;
+  resetStoryStateInternal();
 }
 
 function beginTutorialGuide() {
-  tutorialState.active = true;
-  tutorialState.step = 'focus';
-  tutorialState.requiredHits = 3;
-  tutorialState.hitBaseline = playerTotalHits.value;
-  tutorialState.hasGrantedMp = false;
-  tutorialState.completed = false;
-  setPaused(true);
-  void updateTutorialFocusRectFromTarget();
+  if (!storyFlow) return;
+  beginStoryGuideInternal();
 }
 
 function advanceTutorialStep() {
-  if (!isTutorialGuideActive.value) return;
-
-  if (tutorialState.step === 'focus') {
-    tutorialState.step = 'gesture';
-    return;
-  }
-
-  if (tutorialState.step === 'gesture') {
-    tutorialState.step = 'practice';
-    tutorialState.hitBaseline = playerTotalHits.value;
-    setPaused(false);
-    void updateTutorialFocusRectFromTarget();
-    return;
-  }
-
-  if (tutorialState.step === 'hpEnemy') {
-    tutorialState.step = 'hpPlayer';
-    return;
-  }
-
-  if (tutorialState.step === 'hpPlayer') {
-    tutorialState.step = 'skills';
-    return;
-  }
-
-  if (tutorialState.step === 'skills') {
-    tutorialState.step = 'mp';
-    if (!tutorialState.hasGrantedMp) {
-      skillPoints.value = 100;
-      tutorialState.hasGrantedMp = true;
-    }
-    return;
-  }
-
-  if (tutorialState.step === 'mp') {
-    tutorialState.active = false;
-    tutorialState.completed = true;
-    tutorialFocusRect.value = null;
-    setPaused(false);
-  }
+  if (!storyFlow) return;
+  advanceStoryStepInternal();
 }
 
-async function updateTutorialFocusRectFromTarget() {
-  if (!isTutorialGuideActive.value) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-
-  await nextTick();
-  const step = tutorialState.step;
-  const anchorIdByStep = {
-    focus: 'target-anchor',
-    gesture: 'target-anchor',
-    practice: 'target-anchor',
-    hpEnemy: 'enemy-hp-anchor',
-    hpPlayer: 'player-hp-anchor',
-    skills: 'skill-bar-anchor',
-    mp: 'player-mp-anchor'
-  };
-  const anchorId = anchorIdByStep[step];
-  if (!anchorId) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-  const anchorEl = document.getElementById(anchorId);
-  if (!anchorEl) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-
-  const rect = anchorEl.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  let leftPx = rect.left;
-  let topPx = rect.top;
-  let widthPx = rect.width;
-  let heightPx = rect.height;
-
-  if (['focus', 'gesture', 'practice'].includes(step)) {
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const targetBasePx = 160;
-    const measuredSide = Math.max(rect.width, rect.height, targetBasePx);
-    const sidePx = measuredSide + 88;
-    leftPx = centerX - (sidePx / 2);
-    topPx = centerY - (sidePx / 2);
-    widthPx = sidePx;
-    heightPx = sidePx;
-  } else if (step === 'hpEnemy') {
-    leftPx = rect.left - 10;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 20;
-    heightPx = rect.height + 16;
-  } else if (step === 'hpPlayer') {
-    leftPx = rect.left - 10;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 20;
-    heightPx = rect.height + 16;
-  } else if (step === 'skills') {
-    leftPx = rect.left - 8;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 16;
-    heightPx = rect.height + 16;
-  } else if (step === 'mp') {
-    leftPx = rect.left - 8;
-    topPx = rect.top - 6;
-    widthPx = rect.width + 16;
-    heightPx = rect.height + 12;
-  }
-
-  tutorialFocusRect.value = {
-    left: Math.max(1, Math.min(99, (leftPx / viewportWidth) * 100)),
-    top: Math.max(1, Math.min(99, (topPx / viewportHeight) * 100)),
-    width: Math.max(6, Math.min(98, (widthPx / viewportWidth) * 100)),
-    height: Math.max(6, Math.min(98, (heightPx / viewportHeight) * 100))
-  };
+function updateTutorialFocusRectFromTarget() {
+  if (!storyFlow) return Promise.resolve();
+  return updateStoryFocusRectFromTargetInternal();
 }
 
 useSwipeControls({
@@ -1057,7 +1019,8 @@ function buildDefaultStudyData() {
       equippedSkillIds: normalizedSkillPool.value.slice(0, MAX_SKILL_SLOTS).map(skill => skill.id)
     },
     stageProgress: {
-      clearedStageIds: []
+      clearedStageIds: [],
+      unlockedSkillIds: []
     }
   };
 }
@@ -1074,8 +1037,16 @@ function normalizeStudyData(rawData = {}) {
   const dedupedSkillIds = buildFilledSkillIds(rawPlayerConfig.equippedSkillIds);
   const normalizedCharacter = characters.find(item => item.id === rawPlayerConfig.characterId)?.id ?? characters[0].id;
   const availableStageIds = new Set(stageList.map(stage => stage.id));
+  const availableSkillIds = new Set(skillPool.map(skill => skill.id));
   const clearedStageIds = Array.isArray(rawStageProgress.clearedStageIds)
     ? [...new Set(rawStageProgress.clearedStageIds.filter(id => availableStageIds.has(id)))]
+    : [];
+  const unlockedSkillIds = Array.isArray(rawStageProgress.unlockedSkillIds)
+    ? [...new Set(
+      rawStageProgress.unlockedSkillIds
+        .map(id => String(id ?? '').trim())
+        .filter(id => availableSkillIds.has(id))
+    )]
     : [];
 
   return {
@@ -1094,7 +1065,8 @@ function normalizeStudyData(rawData = {}) {
       equippedSkillIds: dedupedSkillIds
     },
     stageProgress: {
-      clearedStageIds
+      clearedStageIds,
+      unlockedSkillIds
     }
   };
 }
@@ -1112,6 +1084,7 @@ function applyStudyData(nextData) {
   playerConfig.characterId = data.playerConfig.characterId;
   playerConfig.equippedSkillIds = data.playerConfig.equippedSkillIds;
   stageProgress.clearedStageIds = data.stageProgress.clearedStageIds;
+  stageProgress.unlockedSkillIds = data.stageProgress.unlockedSkillIds;
   syncStudyDailyKnowledgeDate();
 }
 
@@ -1133,7 +1106,8 @@ function snapshotStudyData() {
       equippedSkillIds: playerConfig.equippedSkillIds
     },
     stageProgress: {
-      clearedStageIds: stageProgress.clearedStageIds
+      clearedStageIds: stageProgress.clearedStageIds,
+      unlockedSkillIds: stageProgress.unlockedSkillIds
     }
   };
 }
@@ -1374,7 +1348,8 @@ function normalizeRemoteProgressPayload(rawProgress = {}) {
     stageProgress: {
       clearedStageIds: Array.isArray(stage.clearedStageIds)
         ? [...new Set(stage.clearedStageIds.map(id => String(id ?? '').trim()).filter(Boolean))]
-        : []
+        : [],
+      unlockedSkillIds: normalizeSkillIdList(stage.unlockedSkillIds)
     },
     questionProgress: {
       answered: normalizedAnswered,
@@ -1410,7 +1385,8 @@ function buildRemoteProgressPayloadFromLocalState() {
       dailyKnowledgePointsDate: normalized.dailyKnowledge.dateKey
     },
     stageProgress: {
-      clearedStageIds: normalized.stageProgress.clearedStageIds
+      clearedStageIds: normalized.stageProgress.clearedStageIds,
+      unlockedSkillIds: normalizeSkillIdList(normalized.stageProgress.unlockedSkillIds)
     },
     questionProgress: {
       answered: normalized.answered,
@@ -1438,7 +1414,8 @@ function buildDefaultRemoteProgressPayload() {
       dailyKnowledgePointsDate: defaults.dailyKnowledge.dateKey
     },
     stageProgress: {
-      clearedStageIds: []
+      clearedStageIds: [],
+      unlockedSkillIds: []
     },
     questionProgress: {
       answered: 0,
@@ -1461,7 +1438,8 @@ function buildStudyDataFromRemoteProgress(rawProgress = {}) {
       equippedSkillIds: progress.equippedSkills
     },
     stageProgress: {
-      clearedStageIds: progress.stageProgress.clearedStageIds
+      clearedStageIds: progress.stageProgress.clearedStageIds,
+      unlockedSkillIds: progress.stageProgress.unlockedSkillIds
     }
   });
 }
@@ -5223,16 +5201,13 @@ watch(
       return;
     }
     if (step === 'practice') return;
-    setPaused(true);
+    storyFlow?.setPauseState(true);
     void updateTutorialFocusRectFromTarget();
   }
 );
 
 watch(tutorialHitProgress, (count) => {
-  if (!isTutorialGuideActive.value) return;
-  if (tutorialState.step !== 'practice') return;
-  if (count < tutorialState.requiredHits) return;
-  tutorialState.step = 'hpEnemy';
+  tryAdvancePracticeStep(count);
 });
 
 watch(targetTransform, () => {
@@ -5244,9 +5219,14 @@ watch(gameState, (next, prev) => {
   if (prev === 'gameResult' || next !== 'gameResult') return;
   if (isCurrentBattlePvP.value) return;
   if (currentBattleOutcome.value !== 'win') return;
-  if (!stageList.some(stage => stage.id === selectedStageId.value)) return;
-  if (stageProgress.clearedStageIds.includes(selectedStageId.value)) return;
-  stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, selectedStageId.value];
+  const stage = currentStageConfig.value;
+  if (!stage || !stageList.some(item => item.id === stage.id)) return;
+
+  const alreadyCleared = stageProgress.clearedStageIds.includes(stage.id);
+  applyPveStageVictoryRewards(stage, { isFirstClear: !alreadyCleared });
+  if (alreadyCleared) return;
+
+  stageProgress.clearedStageIds = [...stageProgress.clearedStageIds, stage.id];
 });
 
 watch(
@@ -5418,6 +5398,33 @@ function selectStageAndStart(stageId) {
   if (!unlockedStageSet.value.has(stageId)) return;
   selectedStageId.value = stageId;
   startBattle();
+}
+
+function normalizeStageUnlockSkillIds(stage = null) {
+  if (!stage || typeof stage !== 'object') return [];
+  if (!Array.isArray(stage.unlockSkillIds)) return [];
+  const validSkillIds = new Set(skillPool.map(skill => skill.id));
+  const ids = stage.unlockSkillIds
+    .map(id => String(id ?? '').trim())
+    .filter(id => validSkillIds.has(id));
+  return [...new Set(ids)];
+}
+
+function applyPveStageVictoryRewards(stage = null, { isFirstClear = false } = {}) {
+  if (!stage || typeof stage !== 'object') return;
+  const rewardSp = Math.max(0, Math.floor(sanitizeNumber(stage.rewardSp, 0)));
+  if (rewardSp > 0) {
+    studyState.knowledgePoints += rewardSp;
+  }
+
+  if (!isFirstClear) return;
+  const unlockSkillIds = normalizeStageUnlockSkillIds(stage);
+  if (unlockSkillIds.length <= 0) return;
+
+  stageProgress.unlockedSkillIds = [...new Set([
+    ...stageProgress.unlockedSkillIds,
+    ...unlockSkillIds
+  ])];
 }
 
 function openBattleMenu() {

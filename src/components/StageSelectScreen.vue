@@ -21,7 +21,6 @@
           @click="$emit('select-stage', stage.id)"
         >
           <p class="stage-select-title">{{ stage.label }}</p>
-          <p class="stage-select-mode">{{ stage.mode }}</p>
         </button>
       </div>
     </article>

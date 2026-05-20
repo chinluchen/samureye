@@ -1,5 +1,5 @@
 export const GAME_CONFIG = {
-  maxHp: 500,
+  maxHp: 100,
   totalRounds: 5,
   firstRoundSeconds: 8,
   secondsLostPerRound: 0.5,
