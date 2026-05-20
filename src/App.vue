@@ -77,6 +77,8 @@
 
         <HudLayer
           :player-avatar-url="selectedCharacter.avatarUrl"
+          :player-name="battleHudPlayerName"
+          :opponent-name="battleHudOpponentName"
           :player-max-hp="playerMaxHp"
           :opponent-max-hp="opponentMaxHp"
           :player-hp="playerHp"
@@ -100,6 +102,7 @@
           :progress-count="tutorialHitProgress"
           :required-hits="tutorialState.requiredHits"
           :focus-rect="tutorialFocusRect"
+          :player-name="battleHudPlayerName"
           @next="advanceTutorialStep"
         />
       </div>
@@ -771,6 +774,29 @@ const selectedSkills = computed(() => {
   return filledIds.map(id => skillMap.get(id)).filter(Boolean);
 });
 
+function sanitizeBattleHudName(value = '', fallback = '') {
+  const text = String(value ?? '').trim();
+  if (text) return text;
+  return String(fallback ?? '').trim();
+}
+
+const battleHudPlayerName = computed(() => {
+  return sanitizeBattleHudName(resolveLocalPvpDisplayName(), 'SAMUREYE');
+});
+
+const battleHudOpponentName = computed(() => {
+  if (isCurrentBattlePvP.value) {
+    const opponentName = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.displayName, '');
+    const opponentGcName = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.gameCenterDisplayName, '');
+    const opponentAlias = sanitizeBattleHudName(matchmakingStatus.opponentProfile?.alias, '');
+    return opponentName || opponentGcName || opponentAlias || '對手連線中';
+  }
+
+  const stageMonsterName = sanitizeBattleHudName(currentStageConfig.value?.monsterName, '');
+  const stageLabelName = sanitizeBattleHudName(currentStageConfig.value?.label, '');
+  return stageMonsterName || stageLabelName || '怪物';
+});
+
 function getDefaultEnemySkillPool() {
   if (currentStageConfig.value.enemySkillPoolType === 'tutorial') {
     return normalizedSkillPool.value.slice(0, 2);
@@ -884,7 +910,7 @@ function getTutorialForcedTargetId() {
 
 function resetTutorialState() {
   tutorialState.active = false;
-  tutorialState.step = 'focus';
+  tutorialState.step = 'intro1';
   tutorialState.requiredHits = 3;
   tutorialState.hitBaseline = 0;
   tutorialState.hasGrantedMp = false;
@@ -894,7 +920,7 @@ function resetTutorialState() {
 
 function beginTutorialGuide() {
   tutorialState.active = true;
-  tutorialState.step = 'focus';
+  tutorialState.step = 'intro1';
   tutorialState.requiredHits = 3;
   tutorialState.hitBaseline = playerTotalHits.value;
   tutorialState.hasGrantedMp = false;
@@ -905,6 +931,16 @@ function beginTutorialGuide() {
 
 function advanceTutorialStep() {
   if (!isTutorialGuideActive.value) return;
+
+  if (tutorialState.step === 'intro1') {
+    tutorialState.step = 'intro2';
+    return;
+  }
+
+  if (tutorialState.step === 'intro2') {
+    tutorialState.step = 'focus';
+    return;
+  }
 
   if (tutorialState.step === 'focus') {
     tutorialState.step = 'gesture';
@@ -955,6 +991,8 @@ async function updateTutorialFocusRectFromTarget() {
   await nextTick();
   const step = tutorialState.step;
   const anchorIdByStep = {
+    intro1: null,
+    intro2: null,
     focus: 'target-anchor',
     gesture: 'target-anchor',
     practice: 'target-anchor',

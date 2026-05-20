@@ -1,7 +1,7 @@
 <template>
   <div class="tutorial-guide-layer">
-    <div class="tutorial-mask-hole" :style="focusRectStyle"></div>
-    <div class="tutorial-focus-ring" :style="focusRectStyle"></div>
+    <div v-if="shouldShowFocusRect" class="tutorial-mask-hole" :style="focusRectStyle"></div>
+    <div v-if="shouldShowFocusRect" class="tutorial-focus-ring" :style="focusRectStyle"></div>
 
     <div v-if="step === 'gesture'" class="tutorial-gesture-demo" :style="gestureStyle" aria-hidden="true">
       <div class="tutorial-gesture-line"></div>
@@ -9,7 +9,6 @@
     </div>
 
     <article class="tutorial-guide-card pixel-border" :class="`tutorial-guide-card-${cardPosition}`">
-      <p class="tutorial-guide-step">教學模式</p>
       <h3 class="tutorial-guide-title">{{ title }}</h3>
       <p class="tutorial-guide-text">{{ description }}</p>
 
@@ -36,6 +35,7 @@ const props = defineProps({
   step: { type: String, required: true },
   progressCount: { type: Number, default: 0 },
   requiredHits: { type: Number, default: 3 },
+  playerName: { type: String, default: 'SAMUREYE' },
   focusRect: {
     type: Object,
     default: null
@@ -44,7 +44,36 @@ const props = defineProps({
 
 defineEmits(['next']);
 
+const tutorialPlayerName = computed(() => {
+  const text = String(props.playerName ?? '').trim();
+  return text || 'SAMUREYE';
+});
+
 const stepMeta = computed(() => {
+  if (props.step === 'intro1') {
+    return {
+      title: tutorialPlayerName.value,
+      description: '先用兩句話帶你快速認識戰鬥，再開始實際操作。',
+      buttonText: '下一句',
+      showNextButton: true,
+      cardPosition: 'bottom',
+      showFocusRect: false,
+      rect: { left: 26, top: 27, width: 48, height: 22 }
+    };
+  }
+
+  if (props.step === 'intro2') {
+    return {
+      title: '這場是教學關卡',
+      description: '跟著提示走完流程後，就會進入正式關卡挑戰。',
+      buttonText: '開始教學',
+      showNextButton: true,
+      cardPosition: 'bottom',
+      showFocusRect: false,
+      rect: { left: 26, top: 27, width: 48, height: 22 }
+    };
+  }
+
   if (props.step === 'focus') {
     return {
       title: '鎖定中央視標',
@@ -52,6 +81,7 @@ const stepMeta = computed(() => {
       buttonText: '下一步',
       showNextButton: true,
       cardPosition: 'bottom',
+      showFocusRect: true,
       rect: { left: 26, top: 27, width: 48, height: 22 }
     };
   }
@@ -63,6 +93,7 @@ const stepMeta = computed(() => {
       buttonText: '我懂了',
       showNextButton: true,
       cardPosition: 'bottom',
+      showFocusRect: true,
       rect: { left: 26, top: 27, width: 48, height: 22 }
     };
   }
@@ -74,6 +105,7 @@ const stepMeta = computed(() => {
       buttonText: '',
       showNextButton: false,
       cardPosition: 'bottom',
+      showFocusRect: true,
       rect: { left: 26, top: 27, width: 48, height: 22 }
     };
   }
@@ -85,6 +117,7 @@ const stepMeta = computed(() => {
       buttonText: '下一步',
       showNextButton: true,
       cardPosition: 'bottom',
+      showFocusRect: true,
       rect: { left: 2, top: 1, width: 96, height: 20 }
     };
   }
@@ -96,6 +129,7 @@ const stepMeta = computed(() => {
       buttonText: '下一步',
       showNextButton: true,
       cardPosition: 'top',
+      showFocusRect: true,
       rect: { left: 2, top: 82, width: 96, height: 17 }
     };
   }
@@ -107,6 +141,7 @@ const stepMeta = computed(() => {
       buttonText: '下一步',
       showNextButton: true,
       cardPosition: 'top',
+      showFocusRect: true,
       rect: { left: 60, top: 72, width: 38, height: 16 }
     };
   }
@@ -117,6 +152,7 @@ const stepMeta = computed(() => {
     buttonText: '開始對戰',
     showNextButton: true,
     cardPosition: 'top',
+    showFocusRect: true,
     rect: { left: 4, top: 84, width: 46, height: 13 }
   };
 });
@@ -126,15 +162,19 @@ const description = computed(() => stepMeta.value.description);
 const buttonText = computed(() => stepMeta.value.buttonText);
 const showNextButton = computed(() => stepMeta.value.showNextButton);
 const cardPosition = computed(() => stepMeta.value.cardPosition ?? 'bottom');
-const focusRect = computed(() => props.focusRect ?? stepMeta.value.rect);
+const focusRect = computed(() => props.focusRect ?? stepMeta.value.rect ?? null);
+const shouldShowFocusRect = computed(() => stepMeta.value.showFocusRect !== false && Boolean(focusRect.value));
 const cornerRadiusPx = 12;
-const focusRectStyle = computed(() => ({
-  left: `${focusRect.value.left}%`,
-  top: `${focusRect.value.top}%`,
-  width: `${focusRect.value.width}%`,
-  height: `${focusRect.value.height}%`,
-  borderRadius: `${cornerRadiusPx}px`
-}));
+const focusRectStyle = computed(() => {
+  if (!focusRect.value) return {};
+  return {
+    left: `${focusRect.value.left}%`,
+    top: `${focusRect.value.top}%`,
+    width: `${focusRect.value.width}%`,
+    height: `${focusRect.value.height}%`,
+    borderRadius: `${cornerRadiusPx}px`
+  };
+});
 const gestureStyle = computed(() => ({
   left: `${Math.max(8, focusRect.value.left + (focusRect.value.width * 0.06))}%`,
   top: `${focusRect.value.top + (focusRect.value.height * 0.5)}%`,
