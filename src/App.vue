@@ -96,13 +96,12 @@
           @use-skill="handlePlayerSkillUse"
         />
 
-        <TutorialGuideOverlay
+        <StoryOverlay
           v-if="isTutorialGuideActive && !isBattleMenuOpen"
-          :step="tutorialState.step"
+          :meta="currentStoryStepMeta"
           :progress-count="tutorialHitProgress"
           :required-hits="tutorialState.requiredHits"
           :focus-rect="tutorialFocusRect"
-          :player-name="battleHudPlayerName"
           @next="advanceTutorialStep"
         />
       </div>
@@ -241,6 +240,7 @@ import { createSkillLifecycleEngine } from './engines/SkillLifecycleEngine.js';
 import { createSkillVisualEngine } from './engines/SkillVisualEngine.js';
 import { createStatusEffectEngine } from './engines/StatusEffectEngine.js';
 import { useBattleGame } from './composables/useBattleGame.js';
+import { useStoryFlow } from './composables/useStoryFlow.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
 import { drawSlashLine, showDamagePopup, showFeedbackPop, triggerImpactShake } from './utils/effects.js';
 import { sfx } from './services/SoundEngine.js';
@@ -269,7 +269,7 @@ import CharacterSelectScreen from './components/CharacterSelectScreen.vue';
 import SkillLoadoutScreen from './components/SkillLoadoutScreen.vue';
 import StageSelectScreen from './components/StageSelectScreen.vue';
 import LeaderboardScreen from './components/LeaderboardScreen.vue';
-import TutorialGuideOverlay from './components/TutorialGuideOverlay.vue';
+import StoryOverlay from './components/StoryOverlay.vue';
 import IntroOpeningScreen from './components/IntroOpeningScreen.vue';
 
 const currentScreen = ref('introOpening');
@@ -560,15 +560,7 @@ const stageProgress = reactive({
   clearedStageIds: [],
   unlockedSkillIds: []
 });
-const tutorialState = reactive({
-  active: false,
-  step: 'focus',
-  requiredHits: 3,
-  hitBaseline: 0,
-  hasGrantedMp: false,
-  completed: false
-});
-const tutorialFocusRect = ref(null);
+let storyFlow = null;
 const game = useBattleGame({
   autoStart: false,
   getBattleProgression,
@@ -726,12 +718,6 @@ const shouldShowBattleMenuTrigger = computed(() => {
   return true;
 });
 const isTutorialUntimed = computed(() => isTutorialStage.value);
-const tutorialHitProgress = computed(() => {
-  return Math.max(0, playerTotalHits.value - tutorialState.hitBaseline);
-});
-const isTutorialGuideActive = computed(() => {
-  return currentScreen.value === 'battle' && isTutorialStage.value && tutorialState.active;
-});
 const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
 const unlockedStageIds = computed(() => {
   const unlocked = new Set(stageList
@@ -796,6 +782,31 @@ const battleHudOpponentName = computed(() => {
   const stageLabelName = sanitizeBattleHudName(currentStageConfig.value?.label, '');
   return stageMonsterName || stageLabelName || '怪物';
 });
+
+storyFlow = useStoryFlow({
+  currentScreen,
+  isTutorialStage,
+  isTutorialUntimed,
+  playerTotalHits,
+  playerName: battleHudPlayerName,
+  setPaused,
+  grantSkillPoints: (nextValue = 0) => {
+    skillPoints.value = Math.max(0, Math.round(Number(nextValue) || 0));
+  }
+});
+
+const {
+  storyState: tutorialState,
+  storyFocusRect: tutorialFocusRect,
+  storyHitProgress: tutorialHitProgress,
+  isStoryGuideActive: isTutorialGuideActive,
+  currentStoryStepMeta,
+  resetStoryState: resetStoryStateInternal,
+  beginStoryGuide: beginStoryGuideInternal,
+  advanceStoryStep: advanceStoryStepInternal,
+  tryAdvancePracticeStep,
+  updateStoryFocusRectFromTarget: updateStoryFocusRectFromTargetInternal
+} = storyFlow;
 
 function getDefaultEnemySkillPool() {
   if (currentStageConfig.value.enemySkillPoolType === 'tutorial') {
@@ -889,175 +900,38 @@ function getBattleProgression() {
 }
 
 function shouldSkipTutorialRoundIntro() {
-  return isTutorialStage.value;
+  if (!storyFlow) return Boolean(isTutorialStage.value);
+  return storyFlow.shouldSkipRoundIntro();
 }
 
 function shouldUseUntimedTutorial() {
-  return isTutorialUntimed.value;
+  if (!storyFlow) return Boolean(isTutorialUntimed.value);
+  return storyFlow.shouldDisableRoundTimer();
 }
 
 function getTutorialForcedTargetId() {
-  if (!isTutorialStage.value) return null;
-  if (tutorialState.completed) return null;
-  if (tutorialState.step === 'focus' || tutorialState.step === 'gesture') return 'right';
-  if (tutorialState.step === 'practice') {
-    const tutorialDirections = ['right', 'down', 'up-left'];
-    const index = Math.max(0, Math.min(tutorialDirections.length - 1, tutorialHitProgress.value));
-    return tutorialDirections[index];
-  }
-  return null;
+  if (!storyFlow) return null;
+  return storyFlow.getForcedTargetId();
 }
 
 function resetTutorialState() {
-  tutorialState.active = false;
-  tutorialState.step = 'intro1';
-  tutorialState.requiredHits = 3;
-  tutorialState.hitBaseline = 0;
-  tutorialState.hasGrantedMp = false;
-  tutorialState.completed = false;
-  tutorialFocusRect.value = null;
+  if (!storyFlow) return;
+  resetStoryStateInternal();
 }
 
 function beginTutorialGuide() {
-  tutorialState.active = true;
-  tutorialState.step = 'intro1';
-  tutorialState.requiredHits = 3;
-  tutorialState.hitBaseline = playerTotalHits.value;
-  tutorialState.hasGrantedMp = false;
-  tutorialState.completed = false;
-  setPaused(true);
-  void updateTutorialFocusRectFromTarget();
+  if (!storyFlow) return;
+  beginStoryGuideInternal();
 }
 
 function advanceTutorialStep() {
-  if (!isTutorialGuideActive.value) return;
-
-  if (tutorialState.step === 'intro1') {
-    tutorialState.step = 'intro2';
-    return;
-  }
-
-  if (tutorialState.step === 'intro2') {
-    tutorialState.step = 'focus';
-    return;
-  }
-
-  if (tutorialState.step === 'focus') {
-    tutorialState.step = 'gesture';
-    return;
-  }
-
-  if (tutorialState.step === 'gesture') {
-    tutorialState.step = 'practice';
-    tutorialState.hitBaseline = playerTotalHits.value;
-    setPaused(false);
-    void updateTutorialFocusRectFromTarget();
-    return;
-  }
-
-  if (tutorialState.step === 'hpEnemy') {
-    tutorialState.step = 'hpPlayer';
-    return;
-  }
-
-  if (tutorialState.step === 'hpPlayer') {
-    tutorialState.step = 'skills';
-    return;
-  }
-
-  if (tutorialState.step === 'skills') {
-    tutorialState.step = 'mp';
-    if (!tutorialState.hasGrantedMp) {
-      skillPoints.value = 100;
-      tutorialState.hasGrantedMp = true;
-    }
-    return;
-  }
-
-  if (tutorialState.step === 'mp') {
-    tutorialState.active = false;
-    tutorialState.completed = true;
-    tutorialFocusRect.value = null;
-    setPaused(false);
-  }
+  if (!storyFlow) return;
+  advanceStoryStepInternal();
 }
 
-async function updateTutorialFocusRectFromTarget() {
-  if (!isTutorialGuideActive.value) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-
-  await nextTick();
-  const step = tutorialState.step;
-  const anchorIdByStep = {
-    intro1: null,
-    intro2: null,
-    focus: 'target-anchor',
-    gesture: 'target-anchor',
-    practice: 'target-anchor',
-    hpEnemy: 'enemy-hp-anchor',
-    hpPlayer: 'player-hp-anchor',
-    skills: 'skill-bar-anchor',
-    mp: 'player-mp-anchor'
-  };
-  const anchorId = anchorIdByStep[step];
-  if (!anchorId) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-  const anchorEl = document.getElementById(anchorId);
-  if (!anchorEl) {
-    tutorialFocusRect.value = null;
-    return;
-  }
-
-  const rect = anchorEl.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  let leftPx = rect.left;
-  let topPx = rect.top;
-  let widthPx = rect.width;
-  let heightPx = rect.height;
-
-  if (['focus', 'gesture', 'practice'].includes(step)) {
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const targetBasePx = 160;
-    const measuredSide = Math.max(rect.width, rect.height, targetBasePx);
-    const sidePx = measuredSide + 88;
-    leftPx = centerX - (sidePx / 2);
-    topPx = centerY - (sidePx / 2);
-    widthPx = sidePx;
-    heightPx = sidePx;
-  } else if (step === 'hpEnemy') {
-    leftPx = rect.left - 10;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 20;
-    heightPx = rect.height + 16;
-  } else if (step === 'hpPlayer') {
-    leftPx = rect.left - 10;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 20;
-    heightPx = rect.height + 16;
-  } else if (step === 'skills') {
-    leftPx = rect.left - 8;
-    topPx = rect.top - 8;
-    widthPx = rect.width + 16;
-    heightPx = rect.height + 16;
-  } else if (step === 'mp') {
-    leftPx = rect.left - 8;
-    topPx = rect.top - 6;
-    widthPx = rect.width + 16;
-    heightPx = rect.height + 12;
-  }
-
-  tutorialFocusRect.value = {
-    left: Math.max(1, Math.min(99, (leftPx / viewportWidth) * 100)),
-    top: Math.max(1, Math.min(99, (topPx / viewportHeight) * 100)),
-    width: Math.max(6, Math.min(98, (widthPx / viewportWidth) * 100)),
-    height: Math.max(6, Math.min(98, (heightPx / viewportHeight) * 100))
-  };
+function updateTutorialFocusRectFromTarget() {
+  if (!storyFlow) return Promise.resolve();
+  return updateStoryFocusRectFromTargetInternal();
 }
 
 useSwipeControls({
@@ -5327,16 +5201,13 @@ watch(
       return;
     }
     if (step === 'practice') return;
-    setPaused(true);
+    storyFlow?.setPauseState(true);
     void updateTutorialFocusRectFromTarget();
   }
 );
 
 watch(tutorialHitProgress, (count) => {
-  if (!isTutorialGuideActive.value) return;
-  if (tutorialState.step !== 'practice') return;
-  if (count < tutorialState.requiredHits) return;
-  tutorialState.step = 'hpEnemy';
+  tryAdvancePracticeStep(count);
 });
 
 watch(targetTransform, () => {
