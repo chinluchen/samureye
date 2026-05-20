@@ -5212,6 +5212,7 @@ watch(tutorialHitProgress, (count) => {
 
 watch(targetTransform, () => {
   if (!isTutorialGuideActive.value) return;
+  if (tutorialState.step === 'practice') return;
   void updateTutorialFocusRectFromTarget();
 });
 
