@@ -8,6 +8,7 @@
         </div>
 
         <div class="bar-row">
+          <span class="hp-prefix">HP</span>
           <div class="hp-track hp-track-small">
             <div class="hp-fill enemy-fill" :style="{ width: opponentHpPercent }"></div>
           </div>
@@ -65,13 +66,20 @@
         </div>
 
         <div class="bar-row">
+          <span class="hp-prefix">HP</span>
           <div class="hp-track hp-track-large">
             <div class="hp-fill player-fill" :style="{ width: playerHpPercent }"></div>
           </div>
           <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
         </div>
 
-        <div id="player-mp-anchor" class="mp-label">MP: {{ skillPoints }}%</div>
+        <div id="player-mp-anchor" class="bar-row mp-row">
+          <span class="mp-prefix">MP</span>
+          <div class="hp-track mp-track">
+            <div class="mp-fill" :style="{ width: skillPointsPercent }"></div>
+          </div>
+          <span class="hp-number mp-number">{{ skillPointsDisplay }} / 100</span>
+        </div>
         </div>
       </div>
     </div>
@@ -156,6 +164,10 @@ defineEmits(['use-skill']);
 
 const opponentHpPercent = computed(() => `${props.opponentHp / props.opponentMaxHp * 100}%`);
 const playerHpPercent = computed(() => `${props.playerHp / props.playerMaxHp * 100}%`);
+const skillPointsDisplay = computed(() => {
+  return Math.max(0, Math.min(100, Math.round(Number(props.skillPoints) || 0)));
+});
+const skillPointsPercent = computed(() => `${skillPointsDisplay.value}%`);
 const playerLabelText = computed(() => {
   const text = String(props.playerName ?? '').trim();
   return text || 'SAMUREYE';
