@@ -396,10 +396,27 @@ button {
   box-shadow: none;
 }
 
-.home-primary-row {
+.home-primary-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.home-battle-mode-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.65rem;
+}
+
+.battle-mode-screen-actions {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.battle-mode-screen-button {
+  min-height: 112px;
+  font-size: 1.08rem;
 }
 
 .home-menu-grid {
@@ -1953,7 +1970,7 @@ button {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 4px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -1976,7 +1993,7 @@ button {
   width: 24px;
   min-width: 24px;
   flex: 0 0 24px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 900;
   color: #111;
   letter-spacing: 0.4px;
@@ -2020,7 +2037,7 @@ button {
   flex: 0 0 64px;
   justify-self: end;
   text-align: right;
-  font-size: 11px;
+  font-size: 20px;
   font-weight: 900;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2157,7 +2174,7 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: clamp(10px, 3vw, 14px);
+  font-size: clamp(16px, 3vw, 14px);
   line-height: 1.1;
   font-weight: 900;
 }
@@ -2224,7 +2241,7 @@ button {
   width: 24px;
   min-width: 24px;
   flex: 0 0 24px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 900;
   color: #111;
   letter-spacing: 0.4px;

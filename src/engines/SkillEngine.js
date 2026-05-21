@@ -399,9 +399,11 @@ export function buildHostAuthoritativeSkillCast({
   }
 
   const tailHit = hitEvents.length > 0 ? hitEvents[hitEvents.length - 1] : null;
+  const castStartMs = clampInt(castStartAtMs, 0, Date.now());
   const resolveAtMs = tailHit
     ? clampInt(tailHit.atMs, 0, castStartAtMs)
     : (castStartAtMs + Math.round(resolvedPauseDurationMs * normalizedResolveRatio));
+  const resumeAtMs = castStartMs + resolvedPauseDurationMs;
 
   return {
     castId: safeString(castId),
@@ -416,13 +418,16 @@ export function buildHostAuthoritativeSkillCast({
     audioEffects: Array.isArray(skill?.audioEffects) ? skill.audioEffects : [],
     battleRemainingMsAtCast: resolvedBattleRemainingMs,
     effectiveBattleTime: resolvedBattleRemainingMs,
+    castStartAtMs: castStartMs,
+    effectDurationMs,
+    resumeAtMs,
     resolveAtMs,
     statusEffects,
     effectTimeline: {
-      effectStartAtMs: castStartAtMs,
+      effectStartAtMs: castStartMs,
       durationMs: statusEffects.durationMs,
       tickMs: statusEffects.tickMs,
-      effectEndAtMs: statusEffects.durationMs > 0 ? castStartAtMs + statusEffects.durationMs : castStartAtMs
+      effectEndAtMs: statusEffects.durationMs > 0 ? castStartMs + statusEffects.durationMs : castStartMs
     },
     pvpSyncMode,
     castResult,

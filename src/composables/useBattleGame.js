@@ -607,6 +607,27 @@ export function useBattleGame({
     return isRunActive(token);
   }
 
+  function resetCutsceneLayerState({ clearName = false } = {}) {
+    const cutscene = document.getElementById('cutscene-layer');
+    if (cutscene) {
+      gsap.killTweensOf(cutscene);
+      gsap.set(cutscene, { opacity: 0, pointerEvents: 'none' });
+      const portrait = cutscene.querySelector('.cutscene-portrait');
+      if (portrait) {
+        gsap.killTweensOf(portrait);
+        gsap.set(portrait, { opacity: 0 });
+      }
+      const nameText = cutscene.querySelector('.cutscene-skill-name');
+      if (nameText) {
+        gsap.killTweensOf(nameText);
+        gsap.set(nameText, { opacity: 0, x: 0 });
+      }
+    }
+    if (clearName) {
+      cutsceneSkillName.value = '';
+    }
+  }
+
   async function finishSkillCinematic({
     casterSide = 'opponent'
   } = {}, token = runToken.value) {
@@ -618,6 +639,7 @@ export function useBattleGame({
       if (!isRunActive(token)) return false;
     }
 
+    resetCutsceneLayerState({ clearName: true });
     return true;
   }
 
@@ -792,6 +814,7 @@ export function useBattleGame({
 
     if (!cutscene || !portrait || !nameText) return;
 
+    resetCutsceneLayerState({ clearName: false });
     const timeline = gsap.timeline();
     timeline.to(cutscene, { opacity: 1, duration: 0.2, pointerEvents: 'auto' });
     timeline.fromTo(
@@ -805,7 +828,7 @@ export function useBattleGame({
       { x: 0, opacity: 1, duration: 0.4 },
       '-=0.3'
     );
-    timeline.to(cutscene, { opacity: 0, duration: 0.3, delay: 1.2 });
+    timeline.to(cutscene, { opacity: 0, duration: 0.3, delay: 1.2, pointerEvents: 'none' });
 
     await timeline;
   }
@@ -875,6 +898,7 @@ export function useBattleGame({
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    resetCutsceneLayerState({ clearName: true });
     currentTarget.rotation = 0;
     currentTarget.id = 'right';
     clearReticleOffset();
@@ -896,6 +920,7 @@ export function useBattleGame({
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    resetCutsceneLayerState({ clearName: true });
     clearReticleOffset();
     resetPlayerAvatarPosition();
     hideCataractMist();

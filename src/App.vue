@@ -17,13 +17,19 @@
     <HomeScreen
       v-else-if="currentScreen === 'home'"
       :is-skill-loadout-unlocked="isSkillLoadoutUnlocked"
-      @open-stage-select="openStageSelect"
+      @open-battle-mode="openBattleMode"
       @open-study="openStudy"
       @open-settings="openSettings"
       @open-character-select="openCharacterSelect"
       @open-skill-loadout="openSkillLoadout"
-      @open-matchmaking="openMatchmaking"
       @open-leaderboard="openLeaderboard"
+    />
+
+    <BattleModeScreen
+      v-else-if="currentScreen === 'battleMode'"
+      @back-home="goHomeFromBattleMode"
+      @open-stage-select="openStageSelect"
+      @open-matchmaking="openMatchmaking"
     />
 
     <StageSelectScreen
@@ -265,6 +271,7 @@ import CutsceneLayer from './components/CutsceneLayer.vue';
 import GameTarget from './components/GameTarget.vue';
 import HudLayer from './components/HudLayer.vue';
 import BattleMenu from './components/BattleMenu.vue';
+import BattleModeScreen from './components/BattleModeScreen.vue';
 import HomeScreen from './components/HomeScreen.vue';
 import MatchmakingScreen from './components/MatchmakingScreen.vue';
 import ResultLayer from './components/ResultLayer.vue';
@@ -338,6 +345,7 @@ let skillCastResumeTimer = null;
 const skillCastHitTimers = new Set();
 let awaitingLocalSkillCastAck = false;
 let localSkillCastAckTimer = null;
+let pendingSkillCastPostResumeTickTrace = null;
 let battleEndBroadcasted = false;
 const activeSkillAnimation = ref(null);
 const PVP_READY_COUNTDOWN_MS = 3200;
@@ -877,11 +885,11 @@ function getStandardBattleProgression() {
 
 function getPvpBattleProgression() {
   return {
-    maxHp: GAME_CONFIG.maxHp,
-    targetHitDamage: GAME_CONFIG.targetHitDamage,
+    maxHp: 500,
+    targetHitDamage: 10,
     skillPointGainPerHit: GAME_CONFIG.skillPointGainPerHit,
-    enemyHp: GAME_CONFIG.maxHp,
-    enemyDamage: GAME_CONFIG.enemyAttackDamage,
+    enemyHp: 500,
+    enemyDamage: 10,
     enemyAttackIntervalMs: 600,
     enemyAttackIntervalVarianceMs: 0,
     enemyMissRate: 0,
@@ -2613,6 +2621,7 @@ function resetSkillCastSyncState() {
   appliedSkillCastHitEventIds.clear();
   const castToClear = activeSkillCast;
   activeSkillCast = null;
+  pendingSkillCastPostResumeTickTrace = null;
   awaitingLocalSkillCastAck = false;
   void clearSkillAnimation('reset_state', castToClear);
 }
@@ -2918,14 +2927,32 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
   const pauseDurationMs = Number.isFinite(pauseDurationRaw)
     ? Math.max(800, Math.min(6000, Math.round(pauseDurationRaw)))
     : Math.max(800, Math.min(6000, Math.round(Number(skillDefinition.pauseDurationMs ?? 3700))));
+  const castStartAtMs = Number.isFinite(Number(payload.castStartAtMs))
+    ? Math.round(Number(payload.castStartAtMs))
+    : null;
   const battleRemainingMsAtCast = Number.isFinite(Number(payload.battleRemainingMsAtCast))
     ? Math.max(0, Math.round(Number(payload.battleRemainingMsAtCast)))
     : (Number.isFinite(Number(payload.effectiveBattleTime))
       ? Math.max(0, Math.round(Number(payload.effectiveBattleTime)))
       : null);
+  const resumeAtMsRaw = Number(payload.resumeAtMs);
+  const resumeAtMs = Number.isFinite(resumeAtMsRaw)
+    ? Math.round(resumeAtMsRaw)
+    : (Number.isFinite(castStartAtMs) ? Math.round(castStartAtMs + pauseDurationMs) : null);
   const resolveAtMs = Number.isFinite(Number(payload.resolveAtMs))
     ? Math.round(Number(payload.resolveAtMs))
     : null;
+  const effectDurationMs = Number.isFinite(Number(payload.effectDurationMs))
+    ? Math.max(0, Math.round(Number(payload.effectDurationMs)))
+    : Math.max(
+      0,
+      Math.round(Number(
+        payload?.effectTimeline?.durationMs
+        ?? payload?.statusEffects?.durationMs
+        ?? skillDefinition?.effectDurationMs
+        ?? 0
+      ))
+    );
   const resultPayload = payload?.result && typeof payload.result === 'object' ? payload.result : {};
   const castResultPayload = payload?.castResult && typeof payload.castResult === 'object'
     ? payload.castResult
@@ -3000,6 +3027,9 @@ function normalizeSkillCastPayload(payload = {}, sourcePlayerId = '') {
     skillId,
     animationKey,
     pauseDurationMs,
+    castStartAtMs,
+    resumeAtMs,
+    effectDurationMs,
     battleRemainingMsAtCast,
     effectiveBattleTime: battleRemainingMsAtCast,
     resolveAtMs,
@@ -3090,7 +3120,9 @@ function syncBattleTimeFromSkillCast(cast = null) {
   if (!isCurrentBattlePvP.value) return;
   const remainingMs = Number(cast.battleRemainingMsAtCast);
   if (!Number.isFinite(remainingMs) || remainingMs < 0) return;
-  timeLeft.value = remainingMs / 1000;
+  const normalizedRemainingMs = Math.max(0, Math.round(remainingMs));
+  timeLeft.value = normalizedRemainingMs / 1000;
+  return normalizedRemainingMs;
 }
 
 function applySkillCastAuthoritativeDamage(cast = null, reason = 'resolve') {
@@ -3180,13 +3212,19 @@ function applySkillCastHitEvent(cast = null, hitEvent = null, reason = 'schedule
     opponentHp.value = hpAfter;
   }
 
+  const totalHitCount = Array.isArray(cast.hitEvents) ? cast.hitEvents.length : 0;
+  const suppressPerHitHaptic = isCurrentBattlePvP.value
+    && totalHitCount >= 10
+    && hitIndex % 2 === 0;
+
   skillVisualEngine.playHit({
     skill: cast.skillDefinition,
     cast,
     hitEvent: {
       ...hitEvent,
       heal,
-      actualHeal: heal
+      actualHeal: heal,
+      suppressHaptic: suppressPerHitHaptic
     },
     role: cast.localRole
   });
@@ -3195,7 +3233,13 @@ function applySkillCastHitEvent(cast = null, hitEvent = null, reason = 'schedule
     cast.pendingBattleEnd = true;
   }
 
-  console.info(`[PvP Sync] skill_cast hit castId=${cast.castId} hitIndex=${hitIndex} damage=${damage} heal=${heal} hpBefore=${hpBefore} hpAfter=${hpAfter} role=${cast.localRole} reason=${reason}`);
+  const shouldLogHit = reason !== 'hit_event_timer'
+    || hitIndex === 1
+    || hitIndex === totalHitCount
+    || hitIndex % 5 === 0;
+  if (shouldLogHit) {
+    console.info(`[PvP Sync] skill_cast hit castId=${cast.castId} hitIndex=${hitIndex} damage=${damage} heal=${heal} hpBefore=${hpBefore} hpAfter=${hpAfter} role=${cast.localRole} reason=${reason}`);
+  }
 }
 
 function scheduleSkillCastHitEvents(cast = null) {
@@ -3229,6 +3273,10 @@ async function playSkillAnimation(cast = null) {
     animationKey: cast.animationKey,
     role: cast.localRole,
     durationMs: cast.pauseDurationMs,
+    castStartAtMs: Number.isFinite(Number(cast.castStartAtMs)) ? Math.round(Number(cast.castStartAtMs)) : Date.now(),
+    resumeAtMs: Number.isFinite(Number(cast.resumeAtMs))
+      ? Math.round(Number(cast.resumeAtMs))
+      : null,
     startedAtMs: Date.now(),
     title: cast.skillName,
     visualEffects: effects.slice(0, 6)
@@ -3246,12 +3294,20 @@ async function playSkillAnimation(cast = null) {
 
 async function clearSkillAnimation(reason = 'unknown', cast = null) {
   const animation = activeSkillAnimation.value;
+  if (!animation && !cast) return;
   const role = cast?.localRole ?? animation?.role ?? '';
-  if (role === 'caster') {
-    await finishSkillCinematic({ casterSide: 'local-player' });
+  const castId = String(cast?.castId ?? animation?.castId ?? '').trim() || '-';
+  const expectedResumeAtMs = Number.isFinite(Number(cast?.resumeAtMs ?? animation?.resumeAtMs))
+    ? Math.round(Number(cast?.resumeAtMs ?? animation?.resumeAtMs))
+    : -1;
+  const localNow = Date.now();
+  if (animation) {
+    activeSkillAnimation.value = null;
   }
-  if (!animation) return;
-  activeSkillAnimation.value = null;
+  console.info(`[PvP Sync] SkillAnimationLayer卸載 castId=${castId} localNow=${localNow} reason=${reason} expectedResumeAtMs=${expectedResumeAtMs}`);
+  await finishSkillCinematic({
+    casterSide: role === 'caster' ? 'local-player' : 'opponent'
+  });
   console.info(`[PvP Sync] 技能動畫已清除 reason=${reason}`);
 }
 
@@ -3266,11 +3322,27 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
 
   const nextCast = queuedSkillCasts.shift() ?? null;
   if (!nextCast) return;
+  pendingSkillCastPostResumeTickTrace = null;
   activeSkillCast = nextCast;
   queuedSkillCastIds.delete(nextCast.castId);
 
-  syncBattleTimeFromSkillCast(nextCast);
-  console.info(`[PvP Sync] handleSkillCast啟動 castId=${nextCast.castId} role=${nextCast.localRole} skillId=${nextCast.skillId} pauseDurationMs=${nextCast.pauseDurationMs} battleRemainingMsAtCast=${nextCast.battleRemainingMsAtCast} reason=${reason}`);
+  const syncedBattleRemainingMsAtCast = syncBattleTimeFromSkillCast(nextCast);
+  const expectedBattleRemainingMsAtCast = Number.isFinite(Number(nextCast.battleRemainingMsAtCast))
+    ? Math.max(0, Math.round(Number(nextCast.battleRemainingMsAtCast)))
+    : null;
+  const castStartNowMs = Date.now();
+  const expectedResumeAtMs = Number.isFinite(Number(nextCast.resumeAtMs))
+    ? Math.round(Number(nextCast.resumeAtMs))
+    : -1;
+  const expectedCastStartAtMs = Number.isFinite(Number(nextCast.castStartAtMs))
+    ? Math.round(Number(nextCast.castStartAtMs))
+    : -1;
+  console.info(
+    `[PvP Sync] handleSkillCast啟動 castId=${nextCast.castId} role=${nextCast.localRole} skillId=${nextCast.skillId} `
+      + `localNow=${castStartNowMs} pauseDurationMs=${nextCast.pauseDurationMs} effectDurationMs=${nextCast.effectDurationMs ?? 0} `
+      + `resumeAtMs=${expectedResumeAtMs} castStartAtMs=${expectedCastStartAtMs} battleRemainingMsAtCast=${nextCast.battleRemainingMsAtCast} `
+      + `syncedBattleRemainingMsAtCast=${Number.isFinite(Number(syncedBattleRemainingMsAtCast)) ? syncedBattleRemainingMsAtCast : -1} reason=${reason}`
+  );
   nextCast.pendingBattleEnd = false;
   const castResultSummary = resolveCastResultForLifecycle(nextCast);
   emitSkillLifecycleStage('cast_result', nextCast, {
@@ -3319,7 +3391,22 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
   const resolveDelay = Number.isFinite(Number(nextCast.resolveAtMs))
     ? Math.max(0, Math.min(pauseDurationMs, Number(nextCast.resolveAtMs) - nowMs))
     : Math.max(120, Math.min(pauseDurationMs - 80, Math.round(pauseDurationMs * 0.62)));
-  const resumeDelay = Math.max(resolveDelay + 50, pauseDurationMs);
+  const fallbackResumeDelay = Math.max(resolveDelay + 50, pauseDurationMs);
+  const authoritativeResumeAtMs = Number.isFinite(Number(nextCast.resumeAtMs))
+    ? Math.round(Number(nextCast.resumeAtMs))
+    : null;
+  const resumeDelayFromAuthority = Number.isFinite(authoritativeResumeAtMs)
+    ? Math.round(authoritativeResumeAtMs - nowMs)
+    : null;
+  const resumeDelay = Number.isFinite(resumeDelayFromAuthority)
+    ? Math.max(0, Math.min(pauseDurationMs, resumeDelayFromAuthority))
+    : fallbackResumeDelay;
+  console.info(
+    `[PvP Sync] cast_timing castId=${nextCast.castId} localNow=${nowMs} pauseDurationMs=${pauseDurationMs} `
+      + `resolveDelayMs=${resolveDelay} fallbackResumeDelayMs=${fallbackResumeDelay} `
+      + `resumeAtMs=${Number.isFinite(authoritativeResumeAtMs) ? authoritativeResumeAtMs : -1} `
+      + `resumeDelayMs=${resumeDelay} battleRemainingMsAtCast=${nextCast.battleRemainingMsAtCast}`
+  );
 
   if (hasHitEvents) {
     scheduleSkillCastHitEvents(nextCast);
@@ -3336,6 +3423,13 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
 
   skillCastResumeTimer = setTimeout(() => {
     skillCastResumeTimer = null;
+    const resumeNowMs = Date.now();
+    const expectedResumeMs = Number.isFinite(Number(nextCast.resumeAtMs))
+      ? Math.round(Number(nextCast.resumeAtMs))
+      : null;
+    const resumeSkewMs = Number.isFinite(expectedResumeMs)
+      ? resumeNowMs - expectedResumeMs
+      : null;
     if (isPvpTerminalState()) {
       console.info('[PvP End] skill_cast ignored: battle already ended');
       activeSkillCast = null;
@@ -3375,10 +3469,32 @@ function tryStartQueuedSkillCast(reason = 'queue_check') {
     if (!shouldEndBattleAfterCast && gameState.value !== 'gameResult' && gameState.value !== 'finishing') {
       gameState.value = 'playing';
     }
+    const restoredBattleRemainingMs = syncBattleTimeFromSkillCast(nextCast);
+    const normalizedRestoredBattleRemainingMs = Number.isFinite(Number(restoredBattleRemainingMs))
+      ? Math.max(0, Math.round(Number(restoredBattleRemainingMs)))
+      : (Number.isFinite(expectedBattleRemainingMsAtCast) ? expectedBattleRemainingMsAtCast : -1);
     setPaused(false);
+    pendingSkillCastPostResumeTickTrace = {
+      castId: nextCast.castId,
+      resumeAtMs: Number.isFinite(Number(expectedResumeMs)) ? Math.round(Number(expectedResumeMs)) : resumeNowMs,
+      restoredBattleRemainingMs: normalizedRestoredBattleRemainingMs,
+      expectedBattleRemainingMsAtCast: Number.isFinite(expectedBattleRemainingMsAtCast)
+        ? expectedBattleRemainingMsAtCast
+        : normalizedRestoredBattleRemainingMs
+    };
     emitSkillLifecycleStage('resume_battle', nextCast, {
       source: 'skill_cast_resume'
     });
+    const animationCleared = !activeSkillAnimation.value || activeSkillAnimation.value.castId !== nextCast.castId;
+    const endStateInputLocked = isPvpEndUiLocked();
+    console.info(
+      `[PvP Sync] skill_cast_resume castId=${nextCast.castId} localNow=${resumeNowMs} `
+        + `expectedResumeAtMs=${Number.isFinite(expectedResumeMs) ? expectedResumeMs : -1} `
+        + `resumeDelayMs=${Number.isFinite(resumeSkewMs) ? resumeSkewMs : 'NaN'} `
+        + `restoredBattleRemainingMs=${normalizedRestoredBattleRemainingMs} expectedBattleRemainingMsAtCast=${Number.isFinite(expectedBattleRemainingMsAtCast) ? expectedBattleRemainingMsAtCast : -1} `
+        + `animationCleared=${animationCleared ? 'true' : 'false'} battleTimerResumed=${isPaused.value ? 'false' : 'true'} `
+        + `inputLocked=${endStateInputLocked ? 'true' : 'false'}`
+    );
     console.info(`[PvP Sync] skill_cast 結束 castId=${nextCast.castId}，恢復倒數`);
     activeSkillCast = null;
     tryStartQueuedSkillCast('next_cast');
@@ -3393,13 +3509,42 @@ function queueSkillCast(cast = null, reason = 'incoming') {
   if (activeSkillCast?.castId === cast.castId) return;
   queuedSkillCastIds.add(cast.castId);
   queuedSkillCasts.push(cast);
-  console.info(`[PvP Sync] 收到skill_cast castId=${cast.castId} role=${cast.localRole} skillId=${cast.skillId} animationKey=${cast.animationKey} queueReason=${reason}`);
+  const localNow = Date.now();
+  const currentLocalBattleRemainingMs = Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000));
+  const authoritativeBattleRemainingMsAtCast = Math.max(0, Math.round(Number(cast.battleRemainingMsAtCast ?? 0)));
+  const battleRemainingDiffMs = currentLocalBattleRemainingMs - authoritativeBattleRemainingMsAtCast;
+  const resumeAtMs = Number.isFinite(Number(cast.resumeAtMs)) ? Math.round(Number(cast.resumeAtMs)) : -1;
+  const effectDurationMs = Math.max(0, Math.round(Number(cast.effectDurationMs ?? 0)));
+  console.info(
+    `[PvP Sync] 收到skill_cast castId=${cast.castId} role=${cast.localRole} skillId=${cast.skillId} `
+      + `localNow=${localNow} pauseDurationMs=${cast.pauseDurationMs} effectDurationMs=${effectDurationMs} `
+      + `resumeAtMs=${resumeAtMs} battleRemainingMsAtCast=${authoritativeBattleRemainingMsAtCast} currentLocalBattleRemainingMs=${currentLocalBattleRemainingMs} diffMs=${battleRemainingDiffMs} `
+      + `animationKey=${cast.animationKey} queueReason=${reason}`
+  );
   tryStartQueuedSkillCast('incoming_cast');
 }
 
 function dispatchHostSkillCast(castPayload = null, reason = 'host_dispatch') {
   if (!castPayload || typeof castPayload !== 'object') return;
-  console.info(`[PvP Sync] host廣播skill_cast castId=${castPayload.castId} caster=${castPayload.casterPlayerId} skillId=${castPayload.skillId} reason=${reason}`);
+  const authoritativeBattleRemainingMsAtCast = Math.max(0, Math.round(Number(castPayload.battleRemainingMsAtCast ?? 0)));
+  const requestBattleRemainingMsAtRequest = Number(castPayload.requestBattleRemainingMsAtRequest);
+  const hasRequestRemaining = Number.isFinite(requestBattleRemainingMsAtRequest);
+  const requestRemainingMs = hasRequestRemaining ? Math.max(0, Math.round(requestBattleRemainingMsAtRequest)) : -1;
+  const requestDiffMs = hasRequestRemaining
+    ? (requestRemainingMs - authoritativeBattleRemainingMsAtCast)
+    : Number.NaN;
+  const resumeAtMs = Number.isFinite(Number(castPayload.resumeAtMs))
+    ? Math.round(Number(castPayload.resumeAtMs))
+    : -1;
+  const castStartAtMs = Number.isFinite(Number(castPayload.castStartAtMs))
+    ? Math.round(Number(castPayload.castStartAtMs))
+    : -1;
+  console.info(
+    `[PvP Sync] host廣播skill_cast castId=${castPayload.castId} caster=${castPayload.casterPlayerId} skillId=${castPayload.skillId} `
+      + `localNow=${Date.now()} authoritativeBattleRemainingMsAtCast=${authoritativeBattleRemainingMsAtCast} `
+      + `requestBattleRemainingMsAtRequest=${requestRemainingMs} diffMs=${Number.isFinite(requestDiffMs) ? requestDiffMs : 'NaN'} `
+      + `castStartAtMs=${castStartAtMs} resumeAtMs=${resumeAtMs} reason=${reason}`
+  );
   void sendPvpRealtimeEvent('skill_cast', castPayload);
   const localSourceId = resolveMatchPlayerId(matchmakingStatus.localProfile);
   const normalizedLocalCast = normalizeSkillCastPayload(castPayload, localSourceId);
@@ -3729,6 +3874,9 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
   const requestedSkillId = String(payload?.skillId ?? '').trim();
   if (!requestedSkillId) return;
   const requestedSkill = resolveSkillDefinitionById(requestedSkillId);
+  const requestBattleRemainingMsAtRequest = Number.isFinite(Number(payload?.requestedBattleRemainingMs))
+    ? Math.max(0, Math.round(Number(payload.requestedBattleRemainingMs)))
+    : null;
   const targetRule = resolveSkillTargetRule(requestedSkill);
   const targetPlayerId = targetRule === 'self'
     ? requesterId
@@ -3754,6 +3902,19 @@ function handleSkillCastRequest(payload = {}, sourcePlayerId = '') {
     targetPlayerId,
     castId: requestCastId
   });
+  if (requestBattleRemainingMsAtRequest !== null) {
+    authoritativeCast.requestBattleRemainingMsAtRequest = requestBattleRemainingMsAtRequest;
+  }
+  const authoritativeBattleRemainingMsAtCast = Math.max(0, Math.round(Number(authoritativeCast.battleRemainingMsAtCast ?? 0)));
+  const requestVsCastDiffMs = requestBattleRemainingMsAtRequest === null
+    ? Number.NaN
+    : (requestBattleRemainingMsAtRequest - authoritativeBattleRemainingMsAtCast);
+  console.info(
+    `[PvP Sync] host_authoritative_cast castId=${authoritativeCast.castId} localNow=${Date.now()} `
+      + `authoritativeBattleRemainingMsAtCast=${authoritativeBattleRemainingMsAtCast} `
+      + `requestBattleRemainingMsAtRequest=${requestBattleRemainingMsAtRequest ?? -1} `
+      + `diffMs=${Number.isFinite(requestVsCastDiffMs) ? requestVsCastDiffMs : 'NaN'} source=remote_request`
+  );
   dispatchHostSkillCast(authoritativeCast, 'host_handle_request');
 }
 
@@ -3944,11 +4105,16 @@ function normalizeBattleGoPayload(rawPayload = {}) {
   const fogDurationMs = Number.isFinite(fogDurationMsRaw) && fogDurationMsRaw > 0
     ? Math.max(1500, Math.min(2200, Math.round(fogDurationMsRaw)))
     : PVP_FOG_TRANSITION_MS;
+  const startAtRaw = Number(payload.startAt);
+  const startAt = Number.isFinite(startAtRaw) && startAtRaw > 0
+    ? Math.round(startAtRaw)
+    : 0;
   return {
     seed: String(payload.seed ?? '').trim(),
     prepareId: String(payload.prepareId ?? '').trim(),
     countdownMs,
     fogDurationMs,
+    startAt,
     matchSessionId: String(payload.matchSessionId ?? '').trim()
   };
 }
@@ -3966,14 +4132,19 @@ function scheduleBattleStartFromBattleGo(rawPayload = {}, source = 'unknown') {
     return;
   }
 
-  const hostStartAtMs = Number(payload.startAt);
+  const hostStartAtMsRaw = Number(payload.startAt);
+  const hostStartAtMs = Number.isFinite(hostStartAtMsRaw) && hostStartAtMsRaw > 0
+    ? Math.round(hostStartAtMsRaw)
+    : (normalized.startAt > 0 ? normalized.startAt : Number.NaN);
   const localReceivedAtMs = Date.now();
   const rawRemainingMs = Number.isFinite(hostStartAtMs)
     ? Math.round(hostStartAtMs - localReceivedAtMs)
     : Number.NaN;
   const localCountdownMs = normalized.countdownMs;
-  const effectiveStartAtMs = localReceivedAtMs + localCountdownMs;
-  const fallback = localCountdownMs === PVP_FALLBACK_COUNTDOWN_MS;
+  const effectiveStartAtMs = Number.isFinite(hostStartAtMs)
+    ? Math.round(hostStartAtMs)
+    : (localReceivedAtMs + localCountdownMs);
+  const fallback = !Number.isFinite(hostStartAtMs);
 
   console.info(`[PvP Sync] scheduleBattleStartFromBattleGo source=${source} hostStartAtMs=${Number.isFinite(hostStartAtMs) ? Math.round(hostStartAtMs) : -1} localReceivedAtMs=${localReceivedAtMs} rawRemainingMs=${Number.isFinite(rawRemainingMs) ? rawRemainingMs : 'NaN'} localCountdownMs=${localCountdownMs} fallback=${fallback ? 'true' : 'false'}`);
 
@@ -4362,6 +4533,11 @@ async function handlePlayerSkillUse(skill = null) {
   const targetRule = resolveSkillTargetRule(resolvedSkill);
   const targetPlayerIdForCast = targetRule === 'self' ? localPlayerId : opponentPlayerId;
   const requestCastId = `cast-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  const battleRemainingMsAtRequest = Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000));
+  console.info(
+    `[PvP Sync] local_skill_request castId=${requestCastId} role=caster localNow=${Date.now()} `
+      + `battleRemainingMsAtRequest=${battleRemainingMsAtRequest} skillId=${resolvedSkill.id}`
+  );
   emitSkillLifecycleStage('cast_request', {
     castId: requestCastId,
     skillId: resolvedSkill.id,
@@ -4375,7 +4551,7 @@ async function handlePlayerSkillUse(skill = null) {
     }
   }, {
     source: isCurrentPlayerMatchHost() ? 'local_host' : 'local_guest',
-    battleRemainingMsAtRequest: Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000))
+    battleRemainingMsAtRequest
   });
 
   if (isCurrentPlayerMatchHost()) {
@@ -4385,6 +4561,14 @@ async function handlePlayerSkillUse(skill = null) {
       targetPlayerId: targetPlayerIdForCast,
       castId: requestCastId
     });
+    castPayload.requestBattleRemainingMsAtRequest = battleRemainingMsAtRequest;
+    const authoritativeBattleRemainingMsAtCast = Math.max(0, Math.round(Number(castPayload.battleRemainingMsAtCast ?? 0)));
+    console.info(
+      `[PvP Sync] host_authoritative_cast castId=${castPayload.castId} localNow=${Date.now()} `
+        + `authoritativeBattleRemainingMsAtCast=${authoritativeBattleRemainingMsAtCast} `
+        + `requestBattleRemainingMsAtRequest=${battleRemainingMsAtRequest} `
+        + `diffMs=${battleRemainingMsAtRequest - authoritativeBattleRemainingMsAtCast} source=local_host`
+    );
     dispatchHostSkillCast(castPayload, 'local_host_cast');
     return;
   }
@@ -4404,7 +4588,7 @@ async function handlePlayerSkillUse(skill = null) {
     skillId: resolvedSkill.id,
     animationKey: resolvedSkill.animationKey,
     requestedAtMs: Date.now(),
-    requestedBattleRemainingMs: Math.max(0, Math.round(Number(timeLeft.value ?? 0) * 1000))
+    requestedBattleRemainingMs: battleRemainingMsAtRequest
   });
 }
 
@@ -4550,15 +4734,19 @@ function handlePvpRealtimeEvent(packet = {}) {
     if (pendingPrepareBattleState.goSent) return;
     pendingPrepareBattleState.goSent = true;
     pendingPrepareBattleState.ackPlayerId = String(normalizedPacket?._sourcePlayerId ?? '').trim();
+    const battleGoStartAt = Date.now() + Math.max(PVP_FALLBACK_COUNTDOWN_MS, Math.round(Number(pendingPrepareBattleState.countdownMs) || PVP_FALLBACK_COUNTDOWN_MS));
+    pendingPrepareBattleState.startAt = battleGoStartAt;
     console.info(`[PvP Sync] host收到prepare_ack，送出battle_go prepareId=${prepareId}`);
     void sendPvpRealtimeEvent('battle_go', {
       prepareId: pendingPrepareBattleState.prepareId,
       seed: pendingPrepareBattleState.seed,
       countdownMs: pendingPrepareBattleState.countdownMs,
-      fogDurationMs: pendingPrepareBattleState.fogDurationMs
+      fogDurationMs: pendingPrepareBattleState.fogDurationMs,
+      startAt: battleGoStartAt
     });
     scheduleBattleStartFromBattleGo({
       ...pendingPrepareBattleState,
+      startAt: battleGoStartAt,
       matchSessionId: getCurrentPvpMatchSessionId()
     }, 'host_after_prepare_ack');
     return;
@@ -5092,6 +5280,44 @@ onBeforeUnmount(() => {
 });
 
 watch(
+  timeLeft,
+  (nextValue, prevValue) => {
+    if (!isCurrentBattlePvP.value || currentScreen.value !== 'battle') return;
+
+    const currentBattleRemainingMs = Math.max(0, Math.round(Number(nextValue ?? 0) * 1000));
+    const previousBattleRemainingMs = Math.max(0, Math.round(Number(prevValue ?? nextValue ?? 0) * 1000));
+
+    if (
+      isPaused.value
+      && activeSkillCast
+      && gameState.value === 'playing'
+      && currentBattleRemainingMs !== previousBattleRemainingMs
+    ) {
+      console.warn(
+        `[PvP Sync] skill_pause_timer_drift castId=${activeSkillCast.castId} localNow=${Date.now()} `
+          + `previousBattleRemainingMs=${previousBattleRemainingMs} currentBattleRemainingMs=${currentBattleRemainingMs} `
+          + `diffMs=${currentBattleRemainingMs - previousBattleRemainingMs} note=timer_changed_while_skill_paused`
+      );
+    }
+
+    const postResumeTrace = pendingSkillCastPostResumeTickTrace;
+    if (!postResumeTrace) return;
+    if (isPaused.value || gameState.value !== 'playing') return;
+    if (currentBattleRemainingMs >= postResumeTrace.restoredBattleRemainingMs) return;
+
+    const localNow = Date.now();
+    const elapsedSinceResumeMs = Math.max(0, localNow - postResumeTrace.resumeAtMs);
+    const expectedRemainingMs = Math.max(0, postResumeTrace.restoredBattleRemainingMs - elapsedSinceResumeMs);
+    console.info(
+      `[PvP Sync] post_resume_first_tick castId=${postResumeTrace.castId} localNow=${localNow} `
+        + `elapsedSinceResumeMs=${elapsedSinceResumeMs} displayedBattleRemainingMs=${currentBattleRemainingMs} `
+        + `expectedRemainingMs=${expectedRemainingMs} expectedBattleRemainingMsAtCast=${postResumeTrace.expectedBattleRemainingMsAtCast}`
+    );
+    pendingSkillCastPostResumeTickTrace = null;
+  }
+);
+
+watch(
   [gameState, isPaused, currentScreen],
   ([state, paused, screen]) => {
     if (screen !== 'battle') return;
@@ -5349,6 +5575,14 @@ async function goHomeFromMatchmaking() {
     await matchService.cancelMatchmaking();
   }
   resetPvpTerminalState('go_home_from_matchmaking');
+  currentScreen.value = 'battleMode';
+}
+
+function openBattleMode() {
+  currentScreen.value = 'battleMode';
+}
+
+function goHomeFromBattleMode() {
   currentScreen.value = 'home';
 }
 
@@ -5357,7 +5591,7 @@ function openStageSelect() {
 }
 
 function goHomeFromStageSelect() {
-  currentScreen.value = 'home';
+  currentScreen.value = 'battleMode';
 }
 
 function enterIntroStartScreenFromOpening() {

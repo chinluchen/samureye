@@ -4,7 +4,6 @@
       <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
         <div class="mini-row">
           <span>{{ opponentLabelText }}</span>
-          <span class="enemy-stat">HITS: {{ opponentRoundHits }}</span>
         </div>
 
         <div class="bar-row">
@@ -62,7 +61,6 @@
         <div id="player-hp-anchor" class="pixel-border player-panel">
         <div class="mini-row">
           <span>{{ playerLabelText }}</span>
-          <span class="combo-stat">COMBO: {{ combo }}</span>
         </div>
 
         <div class="bar-row">
