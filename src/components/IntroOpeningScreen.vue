@@ -1,10 +1,20 @@
 <template>
   <section class="intro-screen" aria-label="Samureye 開場動畫">
-    <button type="button" class="intro-skip-button" @click="handleSkip">
+    <button v-if="!isStudioSplashActive" type="button" class="intro-skip-button" @click="handleSkip">
       Skip
     </button>
 
-    <div v-if="isIntroVisible" class="intro-stage">
+    <div v-if="isStudioSplashActive" class="studio-splash-stage">
+      <img
+        :src="studioSplashImageUrl"
+        alt=""
+        class="studio-splash-image"
+        :class="studioSplashImageClass"
+        draggable="false"
+      />
+    </div>
+
+    <div v-else-if="isIntroVisible" class="intro-stage">
       <img
         v-if="currentScene.kind === 'imageText' && (phase === 'image' || phase === 'imageFadeOut') && activeImageSrc"
         :src="activeImageSrc"
@@ -37,6 +47,7 @@ import scene3WebpUrl from '../assets/images/intro/scene3.webp';
 import scene3PngUrl from '../assets/images/intro/scene3.png';
 import scene4WebpUrl from '../assets/images/intro/scene4.webp';
 import scene4PngUrl from '../assets/images/intro/scene4.png';
+import studioSplashImageUrl from '../assets/images/intro/studio-pic.jpg';
 
 const emit = defineEmits(['skip', 'complete']);
 
@@ -83,16 +94,27 @@ const IMAGE_DURATION_MS = 1800;
 const IMAGE_FADE_OUT_MS = 500;
 const TEXT_DURATION_MS = 2200;
 const TEXT_FADE_OUT_MS = 500;
+const STUDIO_HIDDEN_LEAD_MS = 1800;
+const STUDIO_FADE_IN_MS = 900;
+const STUDIO_HOLD_MS = 1200;
+const STUDIO_FADE_OUT_MS = 900;
 
 const sceneIndex = ref(0);
 const phase = ref('image');
 const isIntroVisible = ref(false);
 const activeImageSrc = ref('');
 const fallbackUsed = ref(false);
+const studioPhase = ref('preHidden');
 const timerHandles = new Set();
 let isFinishing = false;
+let firstScenePreloadPromise = null;
 
 const currentScene = computed(() => introScenes[sceneIndex.value] ?? introScenes[introScenes.length - 1]);
+const isStudioSplashActive = computed(() => studioPhase.value !== 'done');
+const studioSplashImageClass = computed(() => ({
+  'studio-splash-image--visible': studioPhase.value === 'fadeIn' || studioPhase.value === 'hold',
+  'studio-splash-image--fade-out': studioPhase.value === 'fadeOut'
+}));
 
 function schedule(callback, delayMs) {
   const handle = setTimeout(() => {
@@ -284,10 +306,9 @@ function handleSkip() {
   emit('skip');
 }
 
-onMounted(async () => {
-  console.info('[Intro] start');
-
-  const firstSceneReady = await preloadFirstSceneImage();
+async function startMainIntroSequence() {
+  const preloadPromise = firstScenePreloadPromise ?? preloadFirstSceneImage();
+  const firstSceneReady = await preloadPromise;
   if (isFinishing) return;
 
   if (!firstSceneReady) {
@@ -298,6 +319,41 @@ onMounted(async () => {
   isIntroVisible.value = true;
   configureImageSourceForCurrentScene();
   startScenePlayback();
+}
+
+function startStudioSplash() {
+  console.info('[Intro] studio splash start');
+  firstScenePreloadPromise = preloadFirstSceneImage();
+  studioPhase.value = 'preHidden';
+
+  schedule(() => {
+    if (isFinishing) return;
+    console.info('[Intro] studio splash fade in');
+    studioPhase.value = 'fadeIn';
+  }, STUDIO_HIDDEN_LEAD_MS);
+
+  schedule(() => {
+    if (isFinishing) return;
+    studioPhase.value = 'hold';
+  }, STUDIO_HIDDEN_LEAD_MS + STUDIO_FADE_IN_MS);
+
+  schedule(() => {
+    if (isFinishing) return;
+    console.info('[Intro] studio splash fade out');
+    studioPhase.value = 'fadeOut';
+  }, STUDIO_HIDDEN_LEAD_MS + STUDIO_FADE_IN_MS + STUDIO_HOLD_MS);
+
+  schedule(() => {
+    if (isFinishing) return;
+    studioPhase.value = 'done';
+    console.info('[Intro] studio splash done');
+    void startMainIntroSequence();
+  }, STUDIO_HIDDEN_LEAD_MS + STUDIO_FADE_IN_MS + STUDIO_HOLD_MS + STUDIO_FADE_OUT_MS);
+}
+
+onMounted(() => {
+  console.info('[Intro] start');
+  startStudioSplash();
 });
 
 onBeforeUnmount(() => {
@@ -318,6 +374,35 @@ onBeforeUnmount(() => {
 .intro-stage {
   position: absolute;
   inset: 0;
+}
+
+.studio-splash-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.studio-splash-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 900ms ease, visibility 0s linear 900ms;
+}
+
+.studio-splash-image--visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 900ms ease;
+}
+
+.studio-splash-image--fade-out {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 900ms ease, visibility 0s linear 900ms;
 }
 
 .intro-image {
