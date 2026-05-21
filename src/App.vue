@@ -5,8 +5,13 @@
   >
     <IntroOpeningScreen
       v-if="currentScreen === 'introOpening'"
-      @skip="enterHomeFromIntro"
-      @complete="enterHomeFromIntro"
+      @skip="enterIntroStartScreenFromOpening"
+      @complete="enterIntroStartScreenFromOpening"
+    />
+
+    <IntroStartScreen
+      v-else-if="currentScreen === 'introStart'"
+      @start="enterHomeFromIntroStart"
     />
 
     <HomeScreen
@@ -271,6 +276,7 @@ import StageSelectScreen from './components/StageSelectScreen.vue';
 import LeaderboardScreen from './components/LeaderboardScreen.vue';
 import StoryOverlay from './components/StoryOverlay.vue';
 import IntroOpeningScreen from './components/IntroOpeningScreen.vue';
+import IntroStartScreen from './components/IntroStartScreen.vue';
 
 const currentScreen = ref('introOpening');
 const isBattleMenuOpen = ref(false);
@@ -5354,7 +5360,11 @@ function goHomeFromStageSelect() {
   currentScreen.value = 'home';
 }
 
-function enterHomeFromIntro() {
+function enterIntroStartScreenFromOpening() {
+  currentScreen.value = 'introStart';
+}
+
+function enterHomeFromIntroStart() {
   currentScreen.value = 'home';
 }
 

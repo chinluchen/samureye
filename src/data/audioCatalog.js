@@ -1,4 +1,6 @@
 export const SCREEN_BGM_SCENE = {
+  introOpening: 'introOpening',
+  introStart: 'home',
   home: 'home',
   stageSelect: 'stageSelect',
   matchmaking: 'stageSelect',
@@ -28,6 +30,15 @@ export const BGM_SAMPLE_PLAYBACK = {
 };
 
 export const BGM_SCENE_PRESETS = {
+  introOpening: {
+    oscAType: 'sine',
+    oscBType: 'sine',
+    oscAFreq: 220.0,
+    oscBFreq: 220.0,
+    gainA: 0,
+    gainB: 0,
+    masterGain: 0
+  },
   home: {
     oscAType: 'triangle',
     oscBType: 'sine',
