@@ -7,6 +7,7 @@ import { runEnemyUltimateEffect, runPlayerUltimateEffect } from '../game/ultimat
 import { triggerHaptic } from '../services/hapticsService.js';
 import { sfx } from '../services/SoundEngine.js';
 import {
+  clearImpactShakeTransforms,
   drawSlashLine,
   fadeOutCataractMist,
   hideCataractMist,
@@ -117,7 +118,7 @@ export function useBattleGame({
   function bumpRunToken() {
     runToken.value += 1;
     clearAsyncJobs();
-    gsap.killTweensOf('#app-shell');
+    clearImpactShakeTransforms();
     return runToken.value;
   }
 
@@ -719,7 +720,7 @@ export function useBattleGame({
         if (enemyHp.value <= 0 || count >= 15) {
           clearInterval(interval);
           asyncIntervals.delete(interval);
-          gsap.set('#app-shell', { x: 0, y: 0, clearProps: 'transform' });
+          clearImpactShakeTransforms();
           scheduleTimeout(resolve, 800);
         }
       }, 60);

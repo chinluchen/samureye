@@ -1,6 +1,6 @@
 <template>
   <div id="ui-layer">
-    <div class="hud-top enemy-hud-row breathing">
+    <div class="hud-top enemy-hud-row">
       <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
         <div class="mini-row">
           <span>{{ opponentLabelText }}</span>

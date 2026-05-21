@@ -1,5 +1,31 @@
 import { gsap } from 'gsap';
 
+const IMPACT_SHAKE_TARGET_IDS = [
+  'game-canvas-layer',
+  'fx-layer',
+  'cutscene-layer',
+  'cataract-mist-layer'
+];
+
+function resolveImpactShakeTargets() {
+  const targets = IMPACT_SHAKE_TARGET_IDS
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+
+  if (targets.length > 0) return targets;
+
+  const app = document.getElementById('app-shell');
+  return app ? [app] : [];
+}
+
+export function clearImpactShakeTransforms() {
+  const targets = resolveImpactShakeTargets();
+  targets.forEach(target => {
+    gsap.killTweensOf(target);
+    gsap.set(target, { x: 0, y: 0, clearProps: 'transform' });
+  });
+}
+
 function generateOrganicBladePath() {
   const rand = (min, max) => Math.random() * (max - min) + min;
   const points = ['0% 50%'];
@@ -18,21 +44,25 @@ function generateOrganicBladePath() {
 }
 
 export function triggerImpactShake(angleDeg = 0, power = 18, duration = 0.05) {
-  const app = document.getElementById('app-shell');
-  if (!app) return;
+  const targets = resolveImpactShakeTargets();
+  if (!targets.length) return;
 
   const rad = angleDeg * Math.PI / 180;
+  const shakeX = Math.cos(rad) * power;
+  const shakeY = Math.sin(rad) * power;
 
-  gsap.killTweensOf(app);
-  gsap.to(app, {
-    x: Math.cos(rad) * power,
-    y: Math.sin(rad) * power,
-    duration,
-    yoyo: true,
-    repeat: 1,
-    onComplete: () => {
-      gsap.set(app, { x: 0, y: 0, clearProps: 'transform' });
-    }
+  targets.forEach(target => {
+    gsap.killTweensOf(target);
+    gsap.to(target, {
+      x: shakeX,
+      y: shakeY,
+      duration,
+      yoyo: true,
+      repeat: 1,
+      onComplete: () => {
+        gsap.set(target, { x: 0, y: 0, clearProps: 'transform' });
+      }
+    });
   });
 }
 
