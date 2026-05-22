@@ -114,6 +114,7 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
     private var shouldPresentAuthUI = false
     private var isPresentingAuthUI = false
     private var pendingMatchCall: CAPPluginCall?
+    private var matchmakingRequestToken: Int = 0
     private var currentMatch: GKMatch?
 
     @objc func getLocalPlayer(_ call: CAPPluginCall) {
@@ -145,6 +146,8 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
             request.minPlayers = minPlayers
             request.maxPlayers = maxPlayers
 
+            self.matchmakingRequestToken += 1
+            let requestToken = self.matchmakingRequestToken
             self.pendingMatchCall = call
             self.notifyListeners("matchStateChange", data: [
                 "phase": "searching",
@@ -154,6 +157,7 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
             GKMatchmaker.shared().findMatch(for: request) { [weak self] match, error in
                 guard let self else { return }
                 DispatchQueue.main.async {
+                    guard self.matchmakingRequestToken == requestToken else { return }
                     guard self.pendingMatchCall != nil else { return }
 
                     if let error {
@@ -201,6 +205,7 @@ class GameCenterBridgePlugin: CAPPlugin, CAPBridgedPlugin, GKMatchDelegate {
 
     @objc func cancelMatchmaking(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.matchmakingRequestToken += 1
             GKMatchmaker.shared().cancel()
 
             if let activeMatch = self.currentMatch {

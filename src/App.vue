@@ -346,6 +346,7 @@ const skillCastHitTimers = new Set();
 let awaitingLocalSkillCastAck = false;
 let localSkillCastAckTimer = null;
 let pendingSkillCastPostResumeTickTrace = null;
+let pvpCountdownClockOffsetMs = 0;
 let battleEndBroadcasted = false;
 const activeSkillAnimation = ref(null);
 const PVP_READY_COUNTDOWN_MS = 3200;
@@ -3923,6 +3924,7 @@ function resetPvpReadyState() {
   clearPendingGuestSessionSyncRequestTimer();
   resetSkillCastSyncState();
   pendingPrepareBattleState = null;
+  pvpCountdownClockOffsetMs = 0;
   statusEffectEngine?.reset?.('reset_pvp_ready_state');
   if (!isPvpEndUiLocked()) {
     rootFogOverlayVisible.value = false;
@@ -4137,16 +4139,29 @@ function scheduleBattleStartFromBattleGo(rawPayload = {}, source = 'unknown') {
     ? Math.round(hostStartAtMsRaw)
     : (normalized.startAt > 0 ? normalized.startAt : Number.NaN);
   const localReceivedAtMs = Date.now();
-  const rawRemainingMs = Number.isFinite(hostStartAtMs)
-    ? Math.round(hostStartAtMs - localReceivedAtMs)
-    : Number.NaN;
   const localCountdownMs = normalized.countdownMs;
-  const effectiveStartAtMs = Number.isFinite(hostStartAtMs)
-    ? Math.round(hostStartAtMs)
+  const isHost = isCurrentPlayerMatchHost();
+  if (!isHost && Number.isFinite(hostStartAtMs) && localCountdownMs > 0) {
+    const referenceLocalStartAtMs = localReceivedAtMs + localCountdownMs;
+    pvpCountdownClockOffsetMs = Math.round(referenceLocalStartAtMs - hostStartAtMs);
+  }
+  const adjustedHostStartAtMs = Number.isFinite(hostStartAtMs)
+    ? Math.round(hostStartAtMs + (isHost ? 0 : pvpCountdownClockOffsetMs))
+    : Number.NaN;
+  const rawRemainingMs = Number.isFinite(adjustedHostStartAtMs)
+    ? Math.round(adjustedHostStartAtMs - localReceivedAtMs)
+    : Number.NaN;
+  const effectiveStartAtMs = Number.isFinite(adjustedHostStartAtMs)
+    ? adjustedHostStartAtMs
     : (localReceivedAtMs + localCountdownMs);
   const fallback = !Number.isFinite(hostStartAtMs);
 
-  console.info(`[PvP Sync] scheduleBattleStartFromBattleGo source=${source} hostStartAtMs=${Number.isFinite(hostStartAtMs) ? Math.round(hostStartAtMs) : -1} localReceivedAtMs=${localReceivedAtMs} rawRemainingMs=${Number.isFinite(rawRemainingMs) ? rawRemainingMs : 'NaN'} localCountdownMs=${localCountdownMs} fallback=${fallback ? 'true' : 'false'}`);
+  console.info(
+    `[PvP Sync] scheduleBattleStartFromBattleGo source=${source} hostStartAtMs=${Number.isFinite(hostStartAtMs) ? Math.round(hostStartAtMs) : -1} `
+      + `adjustedHostStartAtMs=${Number.isFinite(adjustedHostStartAtMs) ? adjustedHostStartAtMs : -1} `
+      + `localReceivedAtMs=${localReceivedAtMs} rawRemainingMs=${Number.isFinite(rawRemainingMs) ? rawRemainingMs : 'NaN'} `
+      + `localCountdownMs=${localCountdownMs} offsetMs=${pvpCountdownClockOffsetMs} isHost=${isHost ? 'true' : 'false'} fallback=${fallback ? 'true' : 'false'}`
+  );
 
   startPreBattleCountdown({
     source: `battle_go_schedule_${source}`,
