@@ -122,12 +122,12 @@
 			);
 			dependencies = (
 			);
+			name = App;
 			packageProductDependencies = (
 				444386762FB5B519000FAD2B /* FirebaseAnalytics */,
 				444386792FB5B519000FAD2B /* FirebaseAuth */,
 				4443867B2FB5B519000FAD2B /* FirebaseFirestore */,
 			);
-			name = App;
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";

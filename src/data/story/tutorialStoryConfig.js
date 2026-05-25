@@ -22,7 +22,7 @@ export const TUTORIAL_STORY_FLOW = Object.freeze({
 const STEP_META_MAP = Object.freeze({
   intro1: Object.freeze({
     title: PLAYER_NAME_TITLE_TOKEN,
-    description: '先用兩句話帶你快速認識戰鬥，再開始實際操作。',
+    description: '清醒了嗎？視變體大舉入侵，拿起武器準備戰鬥吧！',
     buttonText: '下一句',
     showNextButton: true,
     cardPosition: 'bottom',
@@ -31,9 +31,9 @@ const STEP_META_MAP = Object.freeze({
     showProgress: false
   }),
   intro2: Object.freeze({
-    title: '這場是教學關卡',
-    description: '跟著提示走完流程後，就會進入正式關卡挑戰。',
-    buttonText: '開始教學',
+    title: '別緊張',
+    description: '我先利用視覺晶片模擬了一隻視變體，就在前面！',
+    buttonText: '下一句',
     showNextButton: true,
     cardPosition: 'bottom',
     showFocusRect: false,
@@ -41,8 +41,8 @@ const STEP_META_MAP = Object.freeze({
     showProgress: false
   }),
   focus: Object.freeze({
-    title: '鎖定中央視標',
-    description: '這是你本回合的主要攻擊目標，先專注在中央 C 字視標。',
+    title: '鎖定視標',
+    description: '有看到前方的C視標嗎？視變體會利用視標攻擊我們！',
     buttonText: '下一步',
     showNextButton: true,
     cardPosition: 'bottom',
@@ -51,8 +51,8 @@ const STEP_META_MAP = Object.freeze({
     showProgress: false
   }),
   gesture: Object.freeze({
-    title: '手勢操作示範',
-    description: '教學固定為向右開口，請像示範一樣往右快速滑動。',
+    title: '斬斷視標',
+    description: '順著視標開口滑動，只要成功破壞視標，視變體就會受到傷害！',
     buttonText: '我懂了',
     showNextButton: true,
     cardPosition: 'bottom',
@@ -61,7 +61,7 @@ const STEP_META_MAP = Object.freeze({
     showProgress: false
   }),
   practice: Object.freeze({
-    title: '開始實作',
+    title: '試著攻擊看看吧！',
     description: '依序完成 3 次操作：向右、向下、向左上滑動。',
     buttonText: '',
     showNextButton: false,
@@ -72,7 +72,7 @@ const STEP_META_MAP = Object.freeze({
   }),
   hpEnemy: Object.freeze({
     title: '敵方血條資訊',
-    description: '上方紅色血條是敵人的生命值，先把敵方血量壓低。',
+    description: '上方紅色血條是敵人的生命值，血量歸零就代表被我們打敗了！',
     buttonText: '下一步',
     showNextButton: true,
     cardPosition: 'bottom',
@@ -82,7 +82,7 @@ const STEP_META_MAP = Object.freeze({
   }),
   hpPlayer: Object.freeze({
     title: '我方血條資訊',
-    description: '下方藍色血條是你的生命值，戰鬥時要避免被打空。',
+    description: '下方藍色血條是你的生命值，血量歸零就是我們被打敗了！',
     buttonText: '下一步',
     showNextButton: true,
     cardPosition: 'top',
@@ -92,7 +92,7 @@ const STEP_META_MAP = Object.freeze({
   }),
   skills: Object.freeze({
     title: '絕招欄位',
-    description: '右下角是你的絕招欄位，MP 足夠時技能按鈕會亮起可施放。',
+    description: '你的絕招欄位，MP 足夠時技能按鈕會亮起可施放。',
     buttonText: '下一步',
     showNextButton: true,
     cardPosition: 'top',
