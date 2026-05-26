@@ -1,3 +1,5 @@
+//招式動畫邏輯層
+
 import animationSource from './skill_animations.json';
 
 const IS_DEV = typeof import.meta !== 'undefined' && Boolean(import.meta?.env?.DEV);

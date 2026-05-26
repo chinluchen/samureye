@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 defineEmits(['play-again', 'open-stage-select', 'open-matchmaking', 'go-home']);
 
@@ -55,11 +55,41 @@ const props = defineProps({
   }
 });
 
-const titleText = computed(() => {
-  if (props.outcome === 'win') return '勝利';
-  if (props.outcome === 'draw') return '平手';
-  return '敗北';
+const PVP_RESULT_TITLES = Object.freeze({
+  win: Object.freeze(['勝利屬於有唸書的人!', '獲勝', '大贏']),
+  draw: Object.freeze(['平手', '勢均力敵', '難分高下']),
+  lose: Object.freeze(['再多練練吧', '視光學多讀一點', '輸家就去多唸點書'])
 });
+
+function pickRandomTitle(options = []) {
+  if (!Array.isArray(options) || options.length <= 0) return '';
+  const index = Math.floor(Math.random() * options.length);
+  return String(options[index] ?? '').trim();
+}
+
+const titleText = ref('');
+
+watch(
+  () => [props.isPvp, props.outcome],
+  () => {
+    if (props.isPvp) {
+      const pool = PVP_RESULT_TITLES[props.outcome] ?? [];
+      titleText.value = pickRandomTitle(pool) || '對戰結果';
+      return;
+    }
+
+    if (props.outcome === 'win') {
+      titleText.value = '勝利';
+      return;
+    }
+    if (props.outcome === 'draw') {
+      titleText.value = '平手';
+      return;
+    }
+    titleText.value = '敗北';
+  },
+  { immediate: true }
+);
 
 const titleClassName = computed(() => {
   if (props.outcome === 'win') return 'win-title';

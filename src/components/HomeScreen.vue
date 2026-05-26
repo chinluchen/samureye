@@ -10,9 +10,14 @@
     </header>
 
     <div class="home-card">
-      <div class="home-primary-row">
-        <button type="button" class="home-start-button" @click="$emit('open-stage-select')">關卡模式</button>
-        <button type="button" class="home-start-button" @click="$emit('open-matchmaking')">玩家對戰</button>
+      <div class="home-primary-stack">
+        <button
+          type="button"
+          class="home-start-button"
+          @click="$emit('open-battle-mode')"
+        >
+          開始戰鬥
+        </button>
       </div>
 
       <div class="home-menu-grid">
@@ -60,6 +65,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'open-battle-mode',
   'open-stage-select',
   'open-study',
   'open-settings',

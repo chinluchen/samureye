@@ -7,6 +7,8 @@ const SKILL_LIFECYCLE_STAGES = Object.freeze([
   'effect_duration',
   'effect_end',
   'cast_end_animation',
+  'skill_exit_start',
+  'skill_exit_complete',
   'resume_battle',
   'battle_end_check'
 ]);

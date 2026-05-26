@@ -4,7 +4,6 @@
       <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
         <div class="mini-row">
           <span>{{ opponentLabelText }}</span>
-          <span class="enemy-stat">HITS: {{ opponentRoundHits }}</span>
         </div>
 
         <div class="bar-row">
@@ -24,7 +23,7 @@
     </div>
 
     <div class="hud-bottom player-area">
-      <div id="skill-bar-anchor" class="skill-bar">
+      <div v-if="!hideSkillHud" id="skill-bar-anchor" class="skill-bar">
         <button
           v-for="skill in skills"
           :key="skill.id"
@@ -62,7 +61,6 @@
         <div id="player-hp-anchor" class="pixel-border player-panel">
         <div class="mini-row">
           <span>{{ playerLabelText }}</span>
-          <span class="combo-stat">COMBO: {{ combo }}</span>
         </div>
 
         <div class="bar-row">
@@ -73,7 +71,7 @@
           <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
         </div>
 
-        <div id="player-mp-anchor" class="bar-row mp-row">
+        <div v-if="!hideSkillHud" id="player-mp-anchor" class="bar-row mp-row">
           <span class="mp-prefix">MP</span>
           <div class="hp-track mp-track">
             <div class="mp-fill" :style="{ width: skillPointsPercent }"></div>
@@ -157,6 +155,14 @@ const props = defineProps({
   hideTimer: {
     type: Boolean,
     default: false
+  },
+  hideSkillHud: {
+    type: Boolean,
+    default: false
+  },
+  disableSkillButtons: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -192,6 +198,7 @@ function isSkillCooling(skillId) {
 function isSkillReady(skill) {
   return props.skillPoints >= skill.cost
     && props.gameState === 'playing'
+    && !props.disableSkillButtons
     && props.playerDebuff !== 'cataract'
     && getSkillCooldownLeft(skill.id) <= 0;
 }
@@ -199,6 +206,7 @@ function isSkillReady(skill) {
 function isSkillDisabled(skill) {
   return props.skillPoints < skill.cost
     || props.gameState !== 'playing'
+    || props.disableSkillButtons
     || props.playerDebuff === 'cataract'
     || isSkillCooling(skill.id);
 }

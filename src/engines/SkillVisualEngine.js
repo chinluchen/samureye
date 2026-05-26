@@ -133,7 +133,8 @@ export function createSkillVisualEngine({
       playAudioKey(payload.audioKey, { isHeal, damage, healAmount });
     }
 
-    if (typeof triggerHaptic === 'function') {
+    const suppressHaptic = Boolean(hitEvent?.suppressHaptic);
+    if (typeof triggerHaptic === 'function' && !suppressHaptic) {
       const mode = payload.hapticMode;
       if (mode) triggerHaptic(pickHitPattern(mode));
     }

@@ -91,6 +91,7 @@ export function useBattleGame({
   let enemyAttackNextIntervalMs = MIN_ENEMY_ATTACK_INTERVAL_MS;
   let enemySkillElapsedMs = 0;
   let enemySkillNextIntervalMs = MIN_ENEMY_SKILL_CAST_INTERVAL_MS;
+  let activeSyncedCutsceneMeta = null;
 
   function scheduleTimeout(callback, delay) {
     const id = setTimeout(() => {
@@ -593,7 +594,8 @@ export function useBattleGame({
   async function playSkillCinematic({
     skillName = '',
     isEnemyTurn: enemyTurn = false,
-    casterSide = 'opponent'
+    casterSide = 'opponent',
+    timelineSync = null
   } = {}, token = runToken.value) {
     if (!isRunActive(token)) return false;
     const shouldMoveLocalAvatar = casterSide === 'local-player';
@@ -603,14 +605,97 @@ export function useBattleGame({
       if (!isRunActive(token)) return false;
     }
 
-    await playCutscene(skillName, Boolean(enemyTurn), token);
+    await playCutscene(skillName, Boolean(enemyTurn), token, {
+      timelineSync
+    });
+    return isRunActive(token);
+  }
+
+  function resetCutsceneLayerState({ clearName = false } = {}) {
+    const cutscene = document.getElementById('cutscene-layer');
+    if (cutscene) {
+      gsap.killTweensOf(cutscene);
+      gsap.set(cutscene, { opacity: 0, pointerEvents: 'none' });
+      const portrait = cutscene.querySelector('.cutscene-portrait');
+      if (portrait) {
+        gsap.killTweensOf(portrait);
+        gsap.set(portrait, { opacity: 0 });
+      }
+      const nameText = cutscene.querySelector('.cutscene-skill-name');
+      if (nameText) {
+        gsap.killTweensOf(nameText);
+        gsap.set(nameText, { opacity: 0, x: 0 });
+      }
+    }
+    if (clearName) {
+      cutsceneSkillName.value = '';
+    }
+    activeSyncedCutsceneMeta = null;
+  }
+
+  async function playCutsceneExitPhase({
+    isEnemy = false,
+    exitDurationMs = 0
+  } = {}, token = runToken.value) {
+    if (!isRunActive(token)) return false;
+
+    const cutscene = document.getElementById('cutscene-layer');
+    const portrait = cutscene?.querySelector('.cutscene-portrait');
+    const nameText = cutscene?.querySelector('.cutscene-skill-name');
+    if (!cutscene || !portrait || !nameText) return isRunActive(token);
+
+    const normalizedExitMs = Number.isFinite(Number(exitDurationMs))
+      ? Math.max(120, Math.min(260, Math.round(Number(exitDurationMs))))
+      : 0;
+    const portraitOutDuration = normalizedExitMs > 0 ? normalizedExitMs / 1000 : 0.35;
+    const nameOutDuration = normalizedExitMs > 0
+      ? Math.max(0.10, portraitOutDuration * 0.75)
+      : 0.24;
+    const layerFadeOutDuration = normalizedExitMs > 0
+      ? Math.max(0.10, portraitOutDuration * 0.68)
+      : 0.22;
+
+    gsap.set(cutscene, { pointerEvents: 'none' });
+    const timeline = gsap.timeline();
+    timeline.to(
+      portrait,
+      {
+        left: isEnemy ? '130%' : '-35%',
+        opacity: 0,
+        duration: portraitOutDuration,
+        ease: 'power2.in'
+      },
+      '>-0.02'
+    );
+    timeline.to(
+      nameText,
+      {
+        x: isEnemy ? -180 : 180,
+        opacity: 0,
+        duration: nameOutDuration,
+        ease: 'power1.in'
+      },
+      '<'
+    );
+    timeline.to(cutscene, { opacity: 0, duration: layerFadeOutDuration, pointerEvents: 'none' }, '<0.08');
+    await timeline;
     return isRunActive(token);
   }
 
   async function finishSkillCinematic({
-    casterSide = 'opponent'
+    casterSide = 'opponent',
+    exitDurationMs = 0
   } = {}, token = runToken.value) {
     if (!isRunActive(token)) return false;
+    const syncedCutscene = activeSyncedCutsceneMeta;
+    if (syncedCutscene && isRunActive(token)) {
+      const exitAlive = await playCutsceneExitPhase({
+        isEnemy: Boolean(syncedCutscene.isEnemyTurn),
+        exitDurationMs
+      }, token);
+      if (!exitAlive) return false;
+      activeSyncedCutsceneMeta = null;
+    }
     const shouldMoveLocalAvatar = casterSide === 'local-player';
 
     if (shouldMoveLocalAvatar) {
@@ -618,13 +703,15 @@ export function useBattleGame({
       if (!isRunActive(token)) return false;
     }
 
+    resetCutsceneLayerState({ clearName: true });
     return true;
   }
 
   async function useSkill(skill, options = {}) {
-    if (isPaused.value || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
-    if (playerDebuff.value === 'cataract') return;
-    if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return;
+    const allowWhenPaused = Boolean(options?.allowWhenPaused);
+    if ((isPaused.value && !allowWhenPaused) || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return false;
+    if (playerDebuff.value === 'cataract') return false;
+    if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return false;
     const token = runToken.value;
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
@@ -637,7 +724,7 @@ export function useBattleGame({
         isEnemyTurn: false,
         casterSide: 'local-player'
       }, token);
-      if (!cinematicAlive) return;
+      if (!cinematicAlive) return false;
       sfx.playSkillCast(skill);
 
       const skillCastMeta = options && typeof options === 'object' && options.syncMeta && typeof options.syncMeta === 'object'
@@ -664,12 +751,12 @@ export function useBattleGame({
         isRunActive,
         runAstigmatismSlash: (nextToken) => runAstigmatismSlash(nextToken, damageEnemyFromSkill)
       });
-      if (!playerUltimateAlive) return;
+      if (!playerUltimateAlive) return false;
 
       const cinematicRestoreAlive = await finishSkillCinematic({
         casterSide: 'local-player'
       }, token);
-      if (!cinematicRestoreAlive) return;
+      if (!cinematicRestoreAlive) return false;
 
       if (gameState.value !== 'finishing') {
         gameState.value = 'playing';
@@ -679,6 +766,7 @@ export function useBattleGame({
         setPendingCooldown(playerSkillCooldownPending, skill.id, false);
       }
       if (enemyHp.value <= 0) triggerSlowMotionFinish();
+      return true;
     } finally {
       if (isRunActive(token)) {
         setPendingCooldown(playerSkillCooldownPending, skill.id, false);
@@ -776,7 +864,7 @@ export function useBattleGame({
     }
   }
 
-  async function playCutscene(skillName, isEnemy, token = runToken.value) {
+  async function playCutscene(skillName, isEnemy, token = runToken.value, options = {}) {
     if (!isRunActive(token)) return;
 
     gameState.value = 'skillCutscene';
@@ -792,22 +880,57 @@ export function useBattleGame({
 
     if (!cutscene || !portrait || !nameText) return;
 
+    const rawSync = options && typeof options === 'object' ? options.timelineSync : null;
+    const startAtMs = Number(rawSync?.castStartAtMs);
+    const resumeAtMs = Number(rawSync?.resumeAtMs);
+    const useSyncedLifecycle = Number.isFinite(startAtMs) || Number.isFinite(resumeAtMs);
+
+    const fadeInDuration = 0.2;
+    const portraitInDuration = 0.5;
+    const nameInDuration = 0.4;
+    const holdDuration = 0.85;
+
+    resetCutsceneLayerState({ clearName: false });
+
+    if (useSyncedLifecycle && Number.isFinite(startAtMs)) {
+      const nowMs = Date.now();
+      const waitMs = Math.max(0, Math.round(startAtMs - nowMs));
+      if (waitMs > 0) {
+        const alive = await waitForRun(waitMs, token);
+        if (!alive) return;
+      }
+      if (!isRunActive(token)) return;
+    }
+
     const timeline = gsap.timeline();
-    timeline.to(cutscene, { opacity: 1, duration: 0.2, pointerEvents: 'auto' });
+    timeline.to(cutscene, { opacity: 1, duration: fadeInDuration, pointerEvents: 'auto' });
     timeline.fromTo(
       portrait,
       { left: isEnemy ? '130%' : '-30%', opacity: 0 },
-      { left: isEnemy ? '50%' : '10%', opacity: 1, duration: 0.5, ease: 'back.out(1.2)' }
+      { left: isEnemy ? '50%' : '10%', opacity: 1, duration: portraitInDuration, ease: 'back.out(1.2)' }
     );
     timeline.fromTo(
       nameText,
       { x: isEnemy ? -300 : 300, opacity: 0 },
-      { x: 0, opacity: 1, duration: 0.4 },
+      { x: 0, opacity: 1, duration: nameInDuration },
       '-=0.3'
     );
-    timeline.to(cutscene, { opacity: 0, duration: 0.3, delay: 1.2 });
+    if (!useSyncedLifecycle) {
+      timeline.to({}, { duration: holdDuration });
+      await timeline;
+      const exitAlive = await playCutsceneExitPhase({ isEnemy }, token);
+      if (!exitAlive) return;
+      return;
+    }
 
     await timeline;
+    if (!isRunActive(token)) return;
+    activeSyncedCutsceneMeta = {
+      token,
+      isEnemyTurn: Boolean(isEnemy),
+      castStartAtMs: Number.isFinite(startAtMs) ? Math.round(startAtMs) : 0,
+      resumeAtMs: Number.isFinite(resumeAtMs) ? Math.round(resumeAtMs) : 0
+    };
   }
 
   function applyBattleProgression(stats = {}) {
@@ -875,6 +998,7 @@ export function useBattleGame({
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    resetCutsceneLayerState({ clearName: true });
     currentTarget.rotation = 0;
     currentTarget.id = 'right';
     clearReticleOffset();
@@ -896,6 +1020,7 @@ export function useBattleGame({
     playerDebuff.value = null;
     enemyDebuff.value = null;
     isSplitting.value = false;
+    resetCutsceneLayerState({ clearName: true });
     clearReticleOffset();
     resetPlayerAvatarPosition();
     hideCataractMist();
