@@ -159,7 +159,9 @@ export function usePveBattleFlow({
     };
   }
 
-  function startPveBattle() {
+  function startPveBattle(options = {}) {
+    const deferInitGame = Boolean(options?.deferInitGame);
+
     if (typeof resetPvpTerminalState === 'function') {
       resetPvpTerminalState('start_pve_battle');
     }
@@ -191,7 +193,7 @@ export function usePveBattleFlow({
       setPaused(false);
     }
 
-    if (typeof initGame === 'function') {
+    if (!deferInitGame && typeof initGame === 'function') {
       initGame();
     }
   }
@@ -205,11 +207,11 @@ export function usePveBattleFlow({
     currentScreen.value = 'battleMode';
   }
 
-  function selectStageAndStart(stageId) {
+  function selectStageAndStart(stageId, options = {}) {
     if (!stageList.some(stage => stage.id === stageId)) return;
     if (unlockedStageSet && !unlockedStageSet.value?.has(stageId)) return;
     selectedStageId.value = stageId;
-    startPveBattle();
+    startPveBattle(options);
   }
 
   return {

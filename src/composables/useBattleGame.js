@@ -708,9 +708,10 @@ export function useBattleGame({
   }
 
   async function useSkill(skill, options = {}) {
-    if (isPaused.value || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return;
-    if (playerDebuff.value === 'cataract') return;
-    if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return;
+    const allowWhenPaused = Boolean(options?.allowWhenPaused);
+    if ((isPaused.value && !allowWhenPaused) || isSkillSequenceActive.value || skillPoints.value < skill.cost || gameState.value !== 'playing') return false;
+    if (playerDebuff.value === 'cataract') return false;
+    if (getCooldownLeft(playerSkillCooldowns, skill.id) > 0) return false;
     const token = runToken.value;
     isSkillSequenceActive.value = true;
     if (timeLeft.value <= 0) pendingRoundAdvance.value = true;
@@ -723,7 +724,7 @@ export function useBattleGame({
         isEnemyTurn: false,
         casterSide: 'local-player'
       }, token);
-      if (!cinematicAlive) return;
+      if (!cinematicAlive) return false;
       sfx.playSkillCast(skill);
 
       const skillCastMeta = options && typeof options === 'object' && options.syncMeta && typeof options.syncMeta === 'object'
@@ -750,12 +751,12 @@ export function useBattleGame({
         isRunActive,
         runAstigmatismSlash: (nextToken) => runAstigmatismSlash(nextToken, damageEnemyFromSkill)
       });
-      if (!playerUltimateAlive) return;
+      if (!playerUltimateAlive) return false;
 
       const cinematicRestoreAlive = await finishSkillCinematic({
         casterSide: 'local-player'
       }, token);
-      if (!cinematicRestoreAlive) return;
+      if (!cinematicRestoreAlive) return false;
 
       if (gameState.value !== 'finishing') {
         gameState.value = 'playing';
@@ -765,6 +766,7 @@ export function useBattleGame({
         setPendingCooldown(playerSkillCooldownPending, skill.id, false);
       }
       if (enemyHp.value <= 0) triggerSlowMotionFinish();
+      return true;
     } finally {
       if (isRunActive(token)) {
         setPendingCooldown(playerSkillCooldownPending, skill.id, false);

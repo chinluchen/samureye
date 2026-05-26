@@ -34,11 +34,11 @@
 
     <StageSelectScreen
       v-else-if="currentScreen === 'stageSelect'"
-      :stages="stageList"
+      :stages="visibleStageList"
       :selected-stage-id="selectedStageId"
       :unlocked-stage-ids="unlockedStageIds"
       @back-home="goHomeFromStageSelect"
-      @select-stage="selectStageAndStart"
+      @select-stage="handleSelectStageAndStart"
     />
 
     <MatchmakingScreen
@@ -79,9 +79,13 @@
       :player-skill-cooldowns="playerSkillCooldowns"
       :player-skill-cooldown-pending="playerSkillCooldownPending"
       :selected-skills="selectedSkills"
+      :hide-skill-hud="shouldHideSkillHud"
+      :disable-skill-buttons="shouldLockStage02TutorialSkills"
       :player-debuff="playerDebuff"
       :is-tutorial-untimed="isTutorialUntimed"
       :is-tutorial-guide-active="isTutorialGuideActive"
+      :is-pre-battle-dialogue-active="isPreBattleDialogueActive"
+      :pre-battle-dialogue-meta="currentPreBattleDialogueMeta"
       :is-battle-menu-open="isBattleMenuOpen"
       :current-story-step-meta="currentStoryStepMeta"
       :tutorial-hit-progress="tutorialHitProgress"
@@ -99,6 +103,7 @@
       @open-battle-menu="openBattleMenu"
       @use-skill="handlePlayerSkillUse"
       @advance-tutorial-step="advanceTutorialStep"
+      @advance-pre-battle-dialogue="advanceStagePreBattleDialogue"
       @init-game="initGame"
       @go-stage-select-from-result="goStageSelectFromResult"
       @go-matchmaking-from-result="goMatchmakingFromResult"
@@ -209,6 +214,7 @@ import { characters } from './data/characters.js';
 import { DOJO_DAILY_CAP_POINTS } from './data/dojoQuestionBanks.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
+import { getStagePreBattleDialogue } from './data/story/stagePreBattleDialogues.js';
 import { buildHostAuthoritativeSkillCast, resolveSkillEffectType, resolveSkillTargetRule } from './engines/SkillEngine.js';
 import { createSkillLifecycleEngine } from './engines/SkillLifecycleEngine.js';
 import { createSkillVisualEngine } from './engines/SkillVisualEngine.js';
@@ -216,6 +222,7 @@ import { createStatusEffectEngine } from './engines/StatusEffectEngine.js';
 import { useBattleGame } from './composables/useBattleGame.js';
 import { filterSkillPoolByMode, usePveBattleFlow } from './composables/usePveBattleFlow.js';
 import { usePvpBattleFlow } from './composables/usePvpBattleFlow.js';
+import { useStageUnlocks } from './composables/useStageUnlocks.js';
 import { useStoryFlow } from './composables/useStoryFlow.js';
 import { useSwipeControls } from './composables/useSwipeControls.js';
 import { drawSlashLine, showDamagePopup, showFeedbackPop, triggerImpactShake } from './utils/effects.js';
@@ -512,6 +519,13 @@ const firebaseSession = reactive({
 });
 const pvpNickname = ref('');
 const selectedStageId = ref(STAGE_IDS.STAGE_01);
+const preBattleDialogueState = reactive({
+  active: false,
+  stageId: '',
+  title: '',
+  lines: [],
+  index: 0
+});
 const selectablePlayerSkills = computed(() => {
   const sharedCandidates = skillPool.filter(skill => !skill.bossOnly && skill.equipable !== false);
   const pveIds = new Set(filterSkillPoolByMode(sharedCandidates, 'pve').map(skill => skill.id));
@@ -624,6 +638,7 @@ const {
   finishSkillCinematic,
   applyOpponentDamage,
   applyRemoteDamage,
+  forceOpponentDefeat,
   setReticleOffset,
   clearReticleOffset
 } = game;
@@ -730,31 +745,37 @@ const shouldShowBattleMenuTrigger = computed(() => {
   return true;
 });
 const isTutorialUntimed = computed(() => isTutorialStage.value);
-const clearedStageSet = computed(() => new Set(stageProgress.clearedStageIds));
-const unlockedStageIds = computed(() => {
-  const unlocked = new Set(stageList
-    .filter(stage => !stage.requiredClearStageId)
-    .map(stage => stage.id));
-  const cleared = clearedStageSet.value;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const stage of stageList) {
-      if (unlocked.has(stage.id)) continue;
-      const requiredStageId = String(stage.requiredClearStageId ?? '').trim();
-      if (!requiredStageId) continue;
-      if (cleared.has(requiredStageId)) {
-        unlocked.add(stage.id);
-        changed = true;
-      }
-    }
-  }
-
-  return stageList
-    .filter(stage => unlocked.has(stage.id))
-    .map(stage => stage.id);
+const isPreBattleDialogueActive = computed(() => {
+  return currentScreen.value === 'battle'
+    && battleSessionMode.value === 'pve'
+    && Boolean(preBattleDialogueState.active)
+    && Array.isArray(preBattleDialogueState.lines)
+    && preBattleDialogueState.lines.length > 0;
 });
-const unlockedStageSet = computed(() => new Set(unlockedStageIds.value));
+const shouldHideSkillHud = computed(() => {
+  const isStage02TutorialSkillLocked =
+    String(selectedStageId.value ?? '').trim() === STAGE_IDS.STAGE_02_TUTORIAL
+    && !stage02SkillLessonState.skillHudVisible;
+
+  return currentScreen.value === 'battle'
+    && battleSessionMode.value === 'pve'
+    && (
+      String(selectedStageId.value ?? '').trim() === STAGE_IDS.STAGE_01
+      || String(selectedStageId.value ?? '').trim() === STAGE_IDS.STAGE_02
+      || isStage02TutorialSkillLocked
+    );
+});
+const {
+  clearedStageSet,
+  unlockedStageIds,
+  unlockedStageSet
+} = useStageUnlocks({
+  stageList,
+  clearedStageIds: () => stageProgress.clearedStageIds
+});
+const visibleStageList = computed(() => {
+  return stageList.filter(stage => unlockedStageSet.value.has(stage.id));
+});
 const isSkillLoadoutUnlocked = computed(() => {
   return clearedStageSet.value.has(STAGE_IDS.STAGE_01);
 });
@@ -765,13 +786,35 @@ const currentStageConfig = computed(() => {
   return stageList.find(stage => stage.id === selectedStageId.value) ?? stageList[0];
 });
 const isGameCenterProvider = computed(() => matchCapabilities.provider === 'gamecenter');
+const stage02SkillLessonState = reactive({
+  triggered: false,
+  awaitingSkillCast: false,
+  completed: false,
+  counterAnimating: false,
+  skillHudVisible: false
+});
+
+function resetStage02SkillLessonState() {
+  stage02SkillLessonState.triggered = false;
+  stage02SkillLessonState.awaitingSkillCast = false;
+  stage02SkillLessonState.completed = false;
+  stage02SkillLessonState.counterAnimating = false;
+  stage02SkillLessonState.skillHudVisible = false;
+}
+
+function isStage02TutorialBattle() {
+  return battleSessionMode.value === 'pve'
+    && currentScreen.value === 'battle'
+    && String(selectedStageId.value ?? '').trim() === STAGE_IDS.STAGE_02_TUTORIAL;
+}
 
 const {
   getEnemySkillPool: getEnemySkillPoolFromPveFlow,
   getBattleProgression: getBattleProgressionFromPveFlow,
   openStageSelect,
   goHomeFromStageSelect,
-  selectStageAndStart
+  selectStageAndStart: selectStageAndStartPveFlow,
+  startPveBattle: startPveBattleFromPveFlow
 } = usePveBattleFlow({
   currentScreen,
   battleSessionMode,
@@ -800,6 +843,98 @@ const {
 
 pveEnemySkillPoolResolver = getEnemySkillPoolFromPveFlow;
 pveBattleProgressionResolver = getBattleProgressionFromPveFlow;
+
+const currentPreBattleDialogueLine = computed(() => {
+  const index = Math.max(0, Math.floor(Number(preBattleDialogueState.index) || 0));
+  const lines = Array.isArray(preBattleDialogueState.lines) ? preBattleDialogueState.lines : [];
+  return lines[index] ?? { speaker: '', text: '' };
+});
+
+const isLastPreBattleDialogueLine = computed(() => {
+  const lines = Array.isArray(preBattleDialogueState.lines) ? preBattleDialogueState.lines : [];
+  if (lines.length <= 0) return true;
+  return preBattleDialogueState.index >= (lines.length - 1);
+});
+
+const currentPreBattleDialogueStageLabel = computed(() => {
+  const stageId = String(preBattleDialogueState.stageId ?? '').trim();
+  const stage = stageList.find(item => item.id === stageId);
+  const label = String(stage?.label ?? '').trim();
+  return label || '關卡劇情';
+});
+
+const currentPreBattleDialogueMeta = computed(() => {
+  if (!isPreBattleDialogueActive.value) return null;
+
+  const speaker = String(currentPreBattleDialogueLine.value?.speaker ?? '').trim();
+  const titleFromDialogue = String(preBattleDialogueState.title ?? '').trim();
+  const title = speaker || titleFromDialogue || currentPreBattleDialogueStageLabel.value;
+  const description = String(currentPreBattleDialogueLine.value?.text ?? '').trim();
+
+  return {
+    title,
+    description,
+    buttonText: isLastPreBattleDialogueLine.value ? '開始戰鬥' : '下一句',
+    showNextButton: true,
+    cardPosition: 'bottom',
+    showFocusRect: false,
+    showGestureDemo: false,
+    showProgress: false
+  };
+});
+
+function resetPreBattleDialogueState() {
+  preBattleDialogueState.active = false;
+  preBattleDialogueState.stageId = '';
+  preBattleDialogueState.title = '';
+  preBattleDialogueState.lines = [];
+  preBattleDialogueState.index = 0;
+}
+
+function applyStagePreBattleDialogue(dialogue = null, stageId = '') {
+  if (!dialogue || typeof dialogue !== 'object') {
+    resetPreBattleDialogueState();
+    return;
+  }
+  preBattleDialogueState.active = true;
+  preBattleDialogueState.stageId = String(dialogue.stageId ?? stageId).trim();
+  preBattleDialogueState.title = String(dialogue.title ?? '').trim();
+  preBattleDialogueState.lines = Array.isArray(dialogue.lines) ? dialogue.lines : [];
+  preBattleDialogueState.index = 0;
+  setPaused(true);
+}
+
+function handleSelectStageAndStart(stageId = '') {
+  const targetStageId = String(stageId ?? '').trim();
+  if (!targetStageId) return;
+  if (!stageList.some(stage => stage.id === targetStageId)) return;
+  if (unlockedStageSet && !unlockedStageSet.value?.has(targetStageId)) return;
+
+  const dialogue = getStagePreBattleDialogue(targetStageId);
+  selectedStageId.value = targetStageId;
+  if (dialogue) {
+    startPveBattleFromPveFlow({ deferInitGame: true });
+    applyStagePreBattleDialogue(dialogue, targetStageId);
+    return;
+  }
+  selectStageAndStartPveFlow(targetStageId);
+  resetPreBattleDialogueState();
+}
+
+function advanceStagePreBattleDialogue() {
+  if (!preBattleDialogueState.active) return;
+  if (currentScreen.value !== 'battle') return;
+  if (battleSessionMode.value !== 'pve') return;
+
+  if (!isLastPreBattleDialogueLine.value) {
+    preBattleDialogueState.index += 1;
+    return;
+  }
+
+  resetPreBattleDialogueState();
+  setPaused(false);
+  initGame();
+}
 
 const selectedSkills = computed(() => {
   const skillMap = new Map(normalizedSkillPool.value.map(skill => [skill.id, skill]));
@@ -834,6 +969,7 @@ storyFlow = useStoryFlow({
   currentScreen,
   isTutorialStage,
   isTutorialUntimed,
+  currentStageId: computed(() => String(currentStageConfig.value?.id ?? selectedStageId.value ?? '').trim()),
   playerTotalHits,
   playerName: battleHudPlayerName,
   setPaused,
@@ -850,6 +986,7 @@ const {
   currentStoryStepMeta,
   resetStoryState: resetStoryStateInternal,
   beginStoryGuide: beginStoryGuideInternal,
+  shouldAutoStartStoryGuide: shouldAutoStartTutorialGuideInternal,
   advanceStoryStep: advanceStoryStepInternal,
   tryAdvancePracticeStep,
   updateStoryFocusRectFromTarget: updateStoryFocusRectFromTargetInternal
@@ -902,8 +1039,78 @@ function getTutorialForcedTargetId() {
 }
 
 function resetTutorialState() {
+  resetStage02SkillLessonState();
   if (!storyFlow) return;
   resetStoryStateInternal();
+}
+
+function isStage02SkillLessonCastStepActive() {
+  return isStage02TutorialBattle()
+    && stage02SkillLessonState.awaitingSkillCast
+    && tutorialState.active
+    && String(tutorialState.step ?? '').trim() === 'cast';
+}
+
+const shouldLockStage02TutorialSkills = computed(() => {
+  if (!isStage02TutorialBattle()) return false;
+  if (!stage02SkillLessonState.skillHudVisible) return false;
+  return !isStage02SkillLessonCastStepActive();
+});
+
+async function activateStage02SkillLesson() {
+  if (!isStage02TutorialBattle()) return;
+  if (stage02SkillLessonState.triggered || stage02SkillLessonState.completed) return;
+  if (stage02SkillLessonState.counterAnimating) return;
+  if (gameState.value !== 'playing') return;
+
+  stage02SkillLessonState.triggered = true;
+  stage02SkillLessonState.awaitingSkillCast = false;
+  stage02SkillLessonState.completed = false;
+  stage02SkillLessonState.counterAnimating = true;
+  stage02SkillLessonState.skillHudVisible = false;
+
+  opponentHp.value = 40;
+  setPaused(true);
+  const counterSkillName = '視變體反擊';
+  let lessonStarted = false;
+
+  try {
+    const cinematicAlive = await playSkillCinematic({
+      skillName: counterSkillName,
+      isEnemyTurn: true,
+      casterSide: 'opponent'
+    });
+    if (!cinematicAlive || !isStage02TutorialBattle()) return;
+
+    const currentPlayerHp = Math.max(0, Math.round(Number(playerHp.value ?? 0)));
+    if (currentPlayerHp > 10) {
+      applyRemoteDamage(currentPlayerHp - 10, '#f97316');
+    } else if (currentPlayerHp < 10) {
+      playerHp.value = 10;
+    }
+
+    const exitAlive = await finishSkillCinematic({
+      casterSide: 'opponent',
+      exitDurationMs: 180
+    });
+    if (!exitAlive || !isStage02TutorialBattle()) return;
+
+    if (gameState.value !== 'finishing' && gameState.value !== 'gameResult') {
+      gameState.value = 'playing';
+      console.info('[PvE Tutorial] stage_02_tutorial counter cinematic complete, restore gameState=playing');
+    }
+
+    skillPoints.value = Math.max(100, Math.round(Number(skillPoints.value ?? 0)));
+    stage02SkillLessonState.awaitingSkillCast = true;
+    beginTutorialGuide();
+    lessonStarted = true;
+  } finally {
+    stage02SkillLessonState.counterAnimating = false;
+    if (!lessonStarted && isStage02TutorialBattle()) {
+      stage02SkillLessonState.triggered = false;
+      stage02SkillLessonState.awaitingSkillCast = false;
+    }
+  }
 }
 
 function beginTutorialGuide() {
@@ -913,7 +1120,15 @@ function beginTutorialGuide() {
 
 function advanceTutorialStep() {
   if (!storyFlow) return;
+  const previousStep = String(tutorialState.step ?? '').trim();
   advanceStoryStepInternal();
+  if (isStage02TutorialBattle()) {
+    const nextStep = String(tutorialState.step ?? '').trim();
+    stage02SkillLessonState.skillHudVisible = nextStep === 'skills' || nextStep === 'cast';
+    if (previousStep !== nextStep) {
+      console.info(`[PvE Tutorial] stage_02_tutorial step transition ${previousStep || '-'} -> ${nextStep || '-'} skillHudVisible=${String(stage02SkillLessonState.skillHudVisible)}`);
+    }
+  }
 }
 
 function updateTutorialFocusRectFromTarget() {
@@ -4686,6 +4901,29 @@ async function handlePlayerSkillUse(skill = null) {
   if (!skill || typeof skill !== 'object') return;
 
   if (!isCurrentBattlePvP.value || currentScreen.value !== 'battle') {
+    if (
+      battleSessionMode.value === 'pve'
+      && currentScreen.value === 'battle'
+      && String(selectedStageId.value ?? '').trim() === STAGE_IDS.STAGE_02
+    ) {
+      return;
+    }
+    if (isStage02SkillLessonCastStepActive()) {
+      const castExecuted = await useSkillCore(skill, { allowWhenPaused: true });
+      if (!castExecuted) return;
+      stage02SkillLessonState.awaitingSkillCast = false;
+      stage02SkillLessonState.completed = true;
+      if (opponentHp.value > 0) {
+        forceOpponentDefeat();
+      }
+      advanceTutorialStep();
+      return;
+    }
+
+    if (isStage02TutorialBattle() && !isStage02SkillLessonCastStepActive()) {
+      return;
+    }
+
     await useSkillCore(skill);
     return;
   }
@@ -5586,12 +5824,28 @@ watch(unlockedStageIds, (ids) => {
 });
 
 watch(
-  [currentScreen, gameState, isTutorialStage],
+  [currentScreen, gameState, () => battleSessionMode.value, selectedStageId, opponentHp],
+  ([screen, state, mode, stageId, enemyHp]) => {
+    if (screen !== 'battle') return;
+    if (state !== 'playing') return;
+    if (String(mode ?? '').trim() !== 'pve') return;
+    if (String(stageId ?? '').trim() !== STAGE_IDS.STAGE_02_TUTORIAL) return;
+    if (stage02SkillLessonState.triggered || stage02SkillLessonState.completed) return;
+
+    const normalizedEnemyHp = Math.max(0, Math.round(Number(enemyHp ?? 0)));
+    if (normalizedEnemyHp <= 0 || normalizedEnemyHp > 40) return;
+    void activateStage02SkillLesson();
+  }
+);
+
+watch(
+  [currentScreen, gameState, isTutorialStage, playerTotalHits],
   ([screen, state, tutorial]) => {
     if (!tutorial || screen !== 'battle') return;
     if (tutorialState.active) return;
     if (tutorialState.completed) return;
     if (state !== 'playing') return;
+    if (typeof shouldAutoStartTutorialGuideInternal === 'function' && !shouldAutoStartTutorialGuideInternal()) return;
     beginTutorialGuide();
   }
 );
@@ -5643,6 +5897,7 @@ watch(
 );
 
 function startPvpBattle() {
+  resetPreBattleDialogueState();
   if (isPvpTerminalState() || isPvpEndUiLocked()) {
     console.info('[PvP UI] battle view blocked: terminal result active');
     console.info('[PvP UI] ignored navigation to battle after result');
@@ -5719,6 +5974,7 @@ function enterHomeFromIntroStart() {
 }
 
 function goStageSelectFromResult() {
+  resetPreBattleDialogueState();
   resetPvpTerminalState('go_stage_select_from_result');
   resetPvpRealtimeState();
   battleSessionMode.value = 'pve';
@@ -5732,6 +5988,7 @@ function goStageSelectFromResult() {
 }
 
 function goMatchmakingFromResult() {
+  resetPreBattleDialogueState();
   resetPvpTerminalState('go_matchmaking_from_result');
   resetPvpRealtimeState();
   applyMatchStatus({
@@ -5797,7 +6054,7 @@ function closeBattleMenu() {
   isBattleMenuOpen.value = false;
   battleMenuView.value = 'main';
   if (!isCurrentBattlePvP.value) {
-    setPaused(false);
+    setPaused(isPreBattleDialogueActive.value);
   }
 }
 
@@ -5811,6 +6068,7 @@ function backToMainMenuView() {
 
 function restartBattleFromMenu() {
   if (forfeitActivePvpBattleAndExit('home')) return;
+  resetPreBattleDialogueState();
   resetTutorialState();
   closeBattleMenu();
   initGame();
@@ -5818,6 +6076,7 @@ function restartBattleFromMenu() {
 
 function returnToHome() {
   if (forfeitActivePvpBattleAndExit('home')) return;
+  resetPreBattleDialogueState();
   resetPvpTerminalState('return_home');
   battleSessionMode.value = 'pve';
   resetTutorialState();

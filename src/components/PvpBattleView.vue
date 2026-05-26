@@ -45,6 +45,8 @@
       :skill-cooldowns="playerSkillCooldowns"
       :skill-cooldown-pending="playerSkillCooldownPending"
       :skills="selectedSkills"
+      :hide-skill-hud="hideSkillHud"
+      :disable-skill-buttons="disableSkillButtons"
       :game-state="gameState"
       :player-debuff="playerDebuff"
       :hide-timer="isTutorialUntimed"
@@ -52,7 +54,16 @@
     />
 
     <StoryOverlay
-      v-if="isTutorialGuideActive && !isBattleMenuOpen"
+      v-if="isPreBattleDialogueActive && !isBattleMenuOpen"
+      :meta="preBattleDialogueMeta"
+      :progress-count="0"
+      :required-hits="0"
+      :focus-rect="null"
+      @next="$emit('advance-pre-battle-dialogue')"
+    />
+
+    <StoryOverlay
+      v-else-if="isTutorialGuideActive && !isBattleMenuOpen"
       :meta="currentStoryStepMeta"
       :progress-count="tutorialHitProgress"
       :required-hits="tutorialStateRequiredHits"
@@ -127,9 +138,13 @@ defineProps({
   playerSkillCooldowns: { type: Object, required: true },
   playerSkillCooldownPending: { type: Object, required: true },
   selectedSkills: { type: Array, required: true },
+  hideSkillHud: { type: Boolean, default: false },
+  disableSkillButtons: { type: Boolean, default: false },
   playerDebuff: { type: String, default: null },
   isTutorialUntimed: { type: Boolean, required: true },
   isTutorialGuideActive: { type: Boolean, required: true },
+  isPreBattleDialogueActive: { type: Boolean, default: false },
+  preBattleDialogueMeta: { type: Object, default: null },
   isBattleMenuOpen: { type: Boolean, required: true },
   currentStoryStepMeta: { type: Object, default: null },
   tutorialHitProgress: { type: Number, required: true },
@@ -149,6 +164,7 @@ defineProps({
 defineEmits([
   'open-battle-menu',
   'use-skill',
+  'advance-pre-battle-dialogue',
   'advance-tutorial-step',
   'init-game',
   'go-stage-select-from-result',

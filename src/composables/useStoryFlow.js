@@ -1,10 +1,10 @@
 import { computed, nextTick, reactive, ref } from 'vue';
 import {
-  TUTORIAL_STORY_FLOW,
   buildTutorialFocusRect,
   getTutorialAnchorId,
   getTutorialForcedTargetId,
   getTutorialNextStep,
+  getTutorialStoryFlow,
   getTutorialStoryStepMeta
 } from '../data/story/tutorialStoryConfig.js';
 
@@ -12,15 +12,43 @@ export function useStoryFlow({
   currentScreen,
   isTutorialStage,
   isTutorialUntimed,
+  currentStageId,
   playerTotalHits,
   playerName,
   setPaused,
   grantSkillPoints
 }) {
+  function resolveStoryFlow() {
+    return getTutorialStoryFlow(currentStageId?.value);
+  }
+
+  function resolveStartTrigger() {
+    const flow = resolveStoryFlow();
+    const rawTrigger = flow?.startTrigger ?? {};
+    const triggerType = String(rawTrigger?.type ?? 'immediate').trim().toLowerCase();
+    if (triggerType === 'manual') {
+      return {
+        type: 'manual',
+        requiredHits: 0
+      };
+    }
+    if (triggerType === 'after_hits') {
+      return {
+        type: 'after_hits',
+        requiredHits: Math.max(0, Math.round(Number(rawTrigger?.requiredHits ?? 0)))
+      };
+    }
+    return {
+      type: 'immediate',
+      requiredHits: 0
+    };
+  }
+
+  const initialFlow = resolveStoryFlow();
   const storyState = reactive({
     active: false,
-    step: TUTORIAL_STORY_FLOW.startStep,
-    requiredHits: TUTORIAL_STORY_FLOW.requiredHits,
+    step: initialFlow.startStep,
+    requiredHits: initialFlow.requiredHits,
     hitBaseline: 0,
     hasGrantedMp: false,
     completed: false
@@ -37,7 +65,8 @@ export function useStoryFlow({
 
   const currentStoryStepMeta = computed(() => {
     return getTutorialStoryStepMeta(storyState.step, {
-      playerName: playerName?.value
+      playerName: playerName?.value,
+      stageId: currentStageId?.value
     });
   });
 
@@ -47,9 +76,10 @@ export function useStoryFlow({
   }
 
   function resetStoryState() {
+    const flow = resolveStoryFlow();
     storyState.active = false;
-    storyState.step = TUTORIAL_STORY_FLOW.startStep;
-    storyState.requiredHits = TUTORIAL_STORY_FLOW.requiredHits;
+    storyState.step = flow.startStep;
+    storyState.requiredHits = flow.requiredHits;
     storyState.hitBaseline = 0;
     storyState.hasGrantedMp = false;
     storyState.completed = false;
@@ -57,14 +87,26 @@ export function useStoryFlow({
   }
 
   function beginStoryGuide() {
+    const flow = resolveStoryFlow();
     storyState.active = true;
-    storyState.step = TUTORIAL_STORY_FLOW.startStep;
-    storyState.requiredHits = TUTORIAL_STORY_FLOW.requiredHits;
+    storyState.step = flow.startStep;
+    storyState.requiredHits = flow.requiredHits;
     storyState.hitBaseline = Number(playerTotalHits?.value) || 0;
     storyState.hasGrantedMp = false;
     storyState.completed = false;
     setPauseState(true);
     void updateStoryFocusRectFromTarget();
+  }
+
+  function shouldAutoStartStoryGuide() {
+    if (!isTutorialStage?.value) return false;
+    if (storyState.active || storyState.completed) return false;
+    const trigger = resolveStartTrigger();
+    if (trigger.type === 'manual') return false;
+    if (trigger.type === 'after_hits') {
+      return (Number(playerTotalHits?.value) || 0) >= trigger.requiredHits;
+    }
+    return true;
   }
 
   function endStoryGuide() {
@@ -77,13 +119,16 @@ export function useStoryFlow({
   function advanceStoryStep() {
     if (!isStoryGuideActive.value) return;
 
+    const flow = resolveStoryFlow();
     const currentStep = storyState.step;
-    if (currentStep === TUTORIAL_STORY_FLOW.finalStep) {
+    if (currentStep === flow.finalStep) {
       endStoryGuide();
       return;
     }
 
-    const nextStep = getTutorialNextStep(currentStep);
+    const nextStep = getTutorialNextStep(currentStep, {
+      stageId: currentStageId?.value
+    });
     if (!nextStep) return;
 
     storyState.step = nextStep;
@@ -95,7 +140,7 @@ export function useStoryFlow({
       return;
     }
 
-    if (currentStep === 'skills' && !storyState.hasGrantedMp) {
+    if (currentStep === flow.grantMpAfterStep && !storyState.hasGrantedMp) {
       if (typeof grantSkillPoints === 'function') {
         grantSkillPoints(100);
       }
@@ -105,14 +150,20 @@ export function useStoryFlow({
 
   function tryAdvancePracticeStep(count = 0) {
     if (!isStoryGuideActive.value) return false;
-    if (storyState.step !== TUTORIAL_STORY_FLOW.practiceStep) return false;
+    const flow = resolveStoryFlow();
+    if (storyState.step !== flow.practiceStep) return false;
     if (Number(count) < storyState.requiredHits) return false;
-    storyState.step = TUTORIAL_STORY_FLOW.practiceCompleteStep;
+    storyState.step = flow.practiceCompleteStep;
     return true;
   }
 
   function shouldSkipRoundIntro() {
-    return Boolean(isTutorialStage?.value);
+    if (!isTutorialStage?.value) return false;
+    const flow = resolveStoryFlow();
+    if (typeof flow?.skipRoundIntro === 'boolean') {
+      return flow.skipRoundIntro;
+    }
+    return true;
   }
 
   function shouldDisableRoundTimer() {
@@ -122,7 +173,9 @@ export function useStoryFlow({
   function getForcedTargetId() {
     if (!isTutorialStage?.value) return null;
     if (storyState.completed) return null;
-    return getTutorialForcedTargetId(storyState.step, storyHitProgress.value);
+    return getTutorialForcedTargetId(storyState.step, storyHitProgress.value, {
+      stageId: currentStageId?.value
+    });
   }
 
   async function updateStoryFocusRectFromTarget() {
@@ -132,7 +185,9 @@ export function useStoryFlow({
     }
 
     await nextTick();
-    const anchorId = getTutorialAnchorId(storyState.step);
+    const anchorId = getTutorialAnchorId(storyState.step, {
+      stageId: currentStageId?.value
+    });
     if (!anchorId) {
       storyFocusRect.value = null;
       return;
@@ -150,6 +205,9 @@ export function useStoryFlow({
       {
         width: window.innerWidth,
         height: window.innerHeight
+      },
+      {
+        stageId: currentStageId?.value
       }
     );
   }
@@ -162,6 +220,7 @@ export function useStoryFlow({
     currentStoryStepMeta,
     resetStoryState,
     beginStoryGuide,
+    shouldAutoStartStoryGuide,
     advanceStoryStep,
     tryAdvancePracticeStep,
     shouldSkipRoundIntro,
