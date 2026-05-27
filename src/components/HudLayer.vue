@@ -27,6 +27,7 @@
         <button
           v-for="skill in skills"
           :key="skill.id"
+          :id="`skill-button-${skill.id}`"
           type="button"
           class="skill-button"
           :class="{ 'is-ready': isSkillReady(skill), 'is-cooling': isSkillCooling(skill.id) }"

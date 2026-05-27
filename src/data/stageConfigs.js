@@ -33,6 +33,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0,
     enemySkillStartDelayMs: 4000,
     rewardSp: 0,
+    unlockSkillSlots: 1,
     unlockSkillIds: [],
     recommendedPowerLevel: 0,
     description: '基礎操作教學關卡。'
@@ -59,6 +60,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0.35,
     enemySkillStartDelayMs: 2500,
     rewardSp: 1,
+    unlockSkillSlots: 1,
     unlockSkillIds: [],
     recommendedPowerLevel: 0,
     description: '第一個正式PvE關卡。'
@@ -85,6 +87,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0,
     enemySkillStartDelayMs: 3000,
     rewardSp: 0,
+    unlockSkillSlots: 2,
     unlockSkillIds: [],
     recommendedPowerLevel: 1,
     description: '讓玩家學會絕招的一關。'
@@ -111,6 +114,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0.45,
     enemySkillStartDelayMs: 2200,
     rewardSp: 1,
+    unlockSkillSlots: 3,
     unlockSkillIds: [],
     recommendedPowerLevel: 2,
     description: '讓玩家知道什麼是絕招的一關'
@@ -137,6 +141,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0.55,
     enemySkillStartDelayMs: 1800,
     rewardSp: 2,
+    unlockSkillSlots: 3,
     unlockSkillIds: [],
     recommendedPowerLevel: 3,
     description: '魔王關卡前的進階PvE關卡。'
@@ -163,6 +168,7 @@ export const stageConfigs = [
     enemySkillCastChance: 0.7,
     enemySkillStartDelayMs: 1500,
     rewardSp: 3,
+    unlockSkillSlots: 3,
     unlockSkillIds: ['astig'],
     recommendedPowerLevel: 4,
     description: '第一階段魔王關卡，通關後可解鎖指定技能。'

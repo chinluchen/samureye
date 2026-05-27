@@ -83,7 +83,7 @@
       :disable-skill-buttons="shouldLockStage02TutorialSkills"
       :player-debuff="playerDebuff"
       :is-tutorial-untimed="isTutorialUntimed"
-      :is-tutorial-guide-active="isTutorialGuideActive"
+      :is-tutorial-guide-active="shouldShowTutorialGuideOverlay"
       :is-pre-battle-dialogue-active="isPreBattleDialogueActive"
       :pre-battle-dialogue-meta="currentPreBattleDialogueMeta"
       :is-battle-menu-open="isBattleMenuOpen"
@@ -167,8 +167,8 @@
       v-else-if="currentScreen === 'skillLoadout'"
       :is-unlocked="isSkillLoadoutUnlocked"
       :skills="normalizedSkillPool"
-      :selected-ids="playerConfig.equippedSkillIds"
-      :max-slots="MAX_SKILL_SLOTS"
+      :selected-ids="selectedSkillIdsForLoadout"
+      :max-slots="unlockedSkillSlotCount"
       @back-home="goHomeFromSkillLoadout"
       @toggle-skill="toggleSkillEquip"
     />
@@ -486,6 +486,7 @@ const SETTINGS_SCHEMA_VERSION = 1;
 const GAME_CENTER_SESSION_SCHEMA_VERSION = 1;
 const FIREBASE_PROGRESS_SCHEMA_VERSION = 1;
 const MAX_SKILL_SLOTS = 3;
+const MIN_SKILL_SLOTS = 1;
 const SKILL_DEFAULT_COST = 40;
 const SKILL_DEFAULT_DAMAGE = 30;
 const NO_ENEMY_SKILLS = Object.freeze(Object.assign([], { __disableFallback: true }));
@@ -785,13 +786,32 @@ const unlockedTrackKeys = computed(() => {
 const currentStageConfig = computed(() => {
   return stageList.find(stage => stage.id === selectedStageId.value) ?? stageList[0];
 });
+const unlockedSkillSlotCount = computed(() => {
+  const clearedStageIds = Array.isArray(stageProgress.clearedStageIds)
+    ? stageProgress.clearedStageIds
+    : [];
+  let slots = MIN_SKILL_SLOTS;
+
+  for (const stageId of clearedStageIds) {
+    const stage = stageList.find(item => item.id === stageId);
+    if (!stage) continue;
+    const configuredSlots = Math.max(
+      MIN_SKILL_SLOTS,
+      Math.min(MAX_SKILL_SLOTS, Math.round(Number(stage.unlockSkillSlots ?? MIN_SKILL_SLOTS)))
+    );
+    if (configuredSlots > slots) slots = configuredSlots;
+  }
+
+  return slots;
+});
 const isGameCenterProvider = computed(() => matchCapabilities.provider === 'gamecenter');
 const stage02SkillLessonState = reactive({
   triggered: false,
   awaitingSkillCast: false,
   completed: false,
   counterAnimating: false,
-  skillHudVisible: false
+  skillHudVisible: false,
+  castOverlayDismissed: false
 });
 
 function resetStage02SkillLessonState() {
@@ -800,6 +820,7 @@ function resetStage02SkillLessonState() {
   stage02SkillLessonState.completed = false;
   stage02SkillLessonState.counterAnimating = false;
   stage02SkillLessonState.skillHudVisible = false;
+  stage02SkillLessonState.castOverlayDismissed = false;
 }
 
 function isStage02TutorialBattle() {
@@ -938,8 +959,20 @@ function advanceStagePreBattleDialogue() {
 
 const selectedSkills = computed(() => {
   const skillMap = new Map(normalizedSkillPool.value.map(skill => [skill.id, skill]));
+
+  if (isStage02TutorialBattle()) {
+    const tutorialSkill = skillMap.get('astig');
+    return tutorialSkill ? [tutorialSkill] : [];
+  }
+
   const filledIds = buildFilledSkillIds(playerConfig.equippedSkillIds);
-  return filledIds.map(id => skillMap.get(id)).filter(Boolean);
+  return filledIds
+    .slice(0, unlockedSkillSlotCount.value)
+    .map(id => skillMap.get(id))
+    .filter(Boolean);
+});
+const selectedSkillIdsForLoadout = computed(() => {
+  return buildFilledSkillIds(playerConfig.equippedSkillIds).slice(0, unlockedSkillSlotCount.value);
 });
 
 function sanitizeBattleHudName(value = '', fallback = '') {
@@ -1057,6 +1090,12 @@ const shouldLockStage02TutorialSkills = computed(() => {
   return !isStage02SkillLessonCastStepActive();
 });
 
+const shouldShowTutorialGuideOverlay = computed(() => {
+  if (!isTutorialGuideActive.value) return false;
+  if (!isStage02TutorialBattle()) return true;
+  return !stage02SkillLessonState.castOverlayDismissed;
+});
+
 async function activateStage02SkillLesson() {
   if (!isStage02TutorialBattle()) return;
   if (stage02SkillLessonState.triggered || stage02SkillLessonState.completed) return;
@@ -1102,6 +1141,7 @@ async function activateStage02SkillLesson() {
 
     skillPoints.value = Math.max(100, Math.round(Number(skillPoints.value ?? 0)));
     stage02SkillLessonState.awaitingSkillCast = true;
+    stage02SkillLessonState.castOverlayDismissed = false;
     beginTutorialGuide();
     lessonStarted = true;
   } finally {
@@ -1124,6 +1164,7 @@ function advanceTutorialStep() {
   advanceStoryStepInternal();
   if (isStage02TutorialBattle()) {
     const nextStep = String(tutorialState.step ?? '').trim();
+    stage02SkillLessonState.castOverlayDismissed = false;
     stage02SkillLessonState.skillHudVisible = nextStep === 'skills' || nextStep === 'cast';
     if (previousStep !== nextStep) {
       console.info(`[PvE Tutorial] stage_02_tutorial step transition ${previousStep || '-'} -> ${nextStep || '-'} skillHudVisible=${String(stage02SkillLessonState.skillHudVisible)}`);
@@ -4909,8 +4950,13 @@ async function handlePlayerSkillUse(skill = null) {
       return;
     }
     if (isStage02SkillLessonCastStepActive()) {
+      stage02SkillLessonState.castOverlayDismissed = true;
+      console.info('[PvE Tutorial] stage_02_tutorial cast pressed, dismiss overlay');
       const castExecuted = await useSkillCore(skill, { allowWhenPaused: true });
-      if (!castExecuted) return;
+      if (!castExecuted) {
+        stage02SkillLessonState.castOverlayDismissed = false;
+        return;
+      }
       stage02SkillLessonState.awaitingSkillCast = false;
       stage02SkillLessonState.completed = true;
       if (opponentHp.value > 0) {
@@ -6159,7 +6205,7 @@ function toggleSkillEquip(skillId) {
     return;
   }
 
-  if (playerConfig.equippedSkillIds.length >= MAX_SKILL_SLOTS) return;
+  if (playerConfig.equippedSkillIds.length >= unlockedSkillSlotCount.value) return;
   playerConfig.equippedSkillIds = [...playerConfig.equippedSkillIds, skillId];
 }
 

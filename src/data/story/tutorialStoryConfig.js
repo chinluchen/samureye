@@ -180,8 +180,8 @@ const STAGE_02_TUTORIAL_FLOW = Object.freeze({
   }),
   anchorIdByStep: Object.freeze({
     counter: null,
-    skills: 'skill-bar-anchor',
-    cast: 'skill-bar-anchor'
+    skills: 'skill-button-astig',
+    cast: 'skill-button-astig'
   }),
   focusRectRuleByStep: Object.freeze({
     skills: Object.freeze({ type: 'padding', padX: 8, padY: 8 }),
