@@ -68,6 +68,8 @@
       :announcement-text="announcementText"
       :battle-hud-player-name="battleHudPlayerName"
       :battle-hud-opponent-name="battleHudOpponentName"
+      :opponent-avatar-url="currentBattleOpponentAvatarUrl"
+      :enemy-cutscene-portrait-url="currentBattleEnemyCutscenePortraitUrl"
       :player-max-hp="playerMaxHp"
       :opponent-max-hp="opponentMaxHp"
       :player-hp="playerHp"
@@ -212,6 +214,7 @@ import { GAME_CONFIG } from './data/gameConfig.js';
 import { SCREEN_BGM_SCENE } from './data/audioCatalog.js';
 import { characters } from './data/characters.js';
 import { DOJO_DAILY_CAP_POINTS } from './data/dojoQuestionBanks.js';
+import { resolveMonsterImageUrl } from './data/monsterImageRegistry.js';
 import { skillPool } from './data/skillPool.js';
 import { stageConfigs, STAGE_IDS } from './data/stageConfigs.js';
 import { getStagePreBattleDialogue } from './data/story/stagePreBattleDialogues.js';
@@ -996,6 +999,24 @@ const battleHudOpponentName = computed(() => {
   const stageMonsterName = sanitizeBattleHudName(currentStageConfig.value?.monsterName, '');
   const stageLabelName = sanitizeBattleHudName(currentStageConfig.value?.label, '');
   return stageMonsterName || stageLabelName || '怪物';
+});
+
+const currentStageMonsterImageName = computed(() => {
+  return String(currentStageConfig.value?.monsterImage ?? '').trim();
+});
+
+const currentStageMonsterImageUrl = computed(() => {
+  return resolveMonsterImageUrl(currentStageMonsterImageName.value);
+});
+
+const currentBattleOpponentAvatarUrl = computed(() => {
+  if (battleSessionMode.value !== 'pve') return '';
+  return currentStageMonsterImageUrl.value;
+});
+
+const currentBattleEnemyCutscenePortraitUrl = computed(() => {
+  if (battleSessionMode.value !== 'pve') return '';
+  return currentStageMonsterImageUrl.value;
 });
 
 storyFlow = useStoryFlow({

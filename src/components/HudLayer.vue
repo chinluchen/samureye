@@ -14,6 +14,9 @@
           <span class="hp-number">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
         </div>
       </div>
+      <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
+        <img class="enemy-avatar-img" :src="resolvedOpponentAvatarUrl" alt="">
+      </div>
     </div>
 
     <div class="timer-row" :class="{ 'is-hidden': hideTimer }">
@@ -101,6 +104,10 @@ const props = defineProps({
     type: String,
     default: '對手'
   },
+  opponentAvatarUrl: {
+    type: String,
+    default: ''
+  },
   playerMaxHp: {
     type: Number,
     required: true
@@ -182,6 +189,9 @@ const playerLabelText = computed(() => {
 const opponentLabelText = computed(() => {
   const text = String(props.opponentName ?? '').trim();
   return text || '對手';
+});
+const resolvedOpponentAvatarUrl = computed(() => {
+  return String(props.opponentAvatarUrl || '').trim();
 });
 
 function getSkillCooldownLeft(skillId) {

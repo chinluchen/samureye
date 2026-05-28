@@ -15,6 +15,7 @@
       :is-enemy-turn="isEnemyTurn"
       :skill-name="cutsceneSkillName"
       :player-portrait-url="selectedCharacter.cutsceneFrontUrl || selectedCharacter.avatarUrl"
+      :enemy-portrait-url="enemyCutscenePortraitUrl"
       :animation-meta="activeSkillAnimation"
     />
 
@@ -32,6 +33,7 @@
 
     <HudLayer
       :player-avatar-url="selectedCharacter.avatarUrl"
+      :opponent-avatar-url="opponentAvatarUrl"
       :player-name="battleHudPlayerName"
       :opponent-name="battleHudOpponentName"
       :player-max-hp="playerMaxHp"
@@ -117,6 +119,8 @@ import StoryOverlay from './StoryOverlay.vue';
 defineProps({
   shouldShowBattleMenuTrigger: { type: Boolean, required: true },
   selectedCharacter: { type: Object, required: true },
+  opponentAvatarUrl: { type: String, default: '' },
+  enemyCutscenePortraitUrl: { type: String, default: '' },
   isEnemyTurn: { type: Boolean, required: true },
   cutsceneSkillName: { type: String, required: true },
   activeSkillAnimation: { type: Object, default: null },

@@ -1,7 +1,8 @@
 <template>
   <div id="cutscene-layer" :class="{ 'enemy-ult': isEnemyTurn }">
     <div class="cutscene-portrait">
-      <span v-if="isEnemyTurn">👹</span>
+      <img v-if="isEnemyTurn && resolvedEnemyPortraitUrl" class="cutscene-portrait-img" :src="resolvedEnemyPortraitUrl" alt="">
+      <span v-else-if="isEnemyTurn">👹</span>
       <img v-else class="cutscene-portrait-img" :src="resolvedPortraitUrl" alt="">
     </div>
     <div class="cutscene-skill-name">{{ skillName }}</div>
@@ -25,6 +26,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  enemyPortraitUrl: {
+    type: String,
+    default: ''
+  },
   animationMeta: {
     type: Object,
     default: null
@@ -34,6 +39,10 @@ const props = defineProps({
 const resolvedPortraitUrl = computed(() => {
   const text = String(props.playerPortraitUrl || '').trim();
   return text || samuFrontPortraitUrl;
+});
+
+const resolvedEnemyPortraitUrl = computed(() => {
+  return String(props.enemyPortraitUrl || '').trim();
 });
 
 watch(

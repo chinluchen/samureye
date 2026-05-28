@@ -1941,8 +1941,29 @@ button {
   padding-left: 20px;
   padding-right: 20px;
   display: flex;
+  gap: 14px;
   justify-content: flex-end;
   align-items: flex-start;
+}
+
+.enemy-avatar-figure {
+  width: clamp(156px, 24vw, 252px);
+  height: clamp(156px, 24vw, 252px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  overflow: hidden;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 0 #141414);
+  margin-top: -12px;
+  margin-right: -6px;
+}
+
+.enemy-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: right bottom;
 }
 
 .enemy-panel {
