@@ -1514,15 +1514,16 @@ button {
 }
 
 .battle-menu-trigger {
-  position: absolute;
-  top: max(0.8rem, calc(var(--safe-top) + 0.5rem));
-  left: 1rem;
+  position: relative;
+  /* top: calc(var(--safe-top) + 18px); */
+  left: 8px;
   z-index: 2100;
-  min-width: 76px;
-  height: 44px;
-  padding: 0 14px;
+  min-width: 64px;
+  height: 40px;
+  padding: 0 0px;
+  margin-left: 8px;
   border-radius: 8px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 900;
   pointer-events: auto;
 }
@@ -1761,6 +1762,11 @@ button {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding-top: max(8px, calc(var(--safe-top)));
+  padding-bottom: max(8px, calc(var(--safe-bottom)));
 }
 
 #fx-layer {
@@ -1769,12 +1775,6 @@ button {
 
 #game-canvas-layer {
   z-index: 10;
-}
-
-#ui-layer {
-  z-index: 500;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 #cutscene-layer {
@@ -1929,34 +1929,38 @@ button {
   animation: ui-breathing 4s ease-in-out infinite;
 }
 
-.hud-top {
-  padding-top: max(1.25rem, calc(var(--safe-top) + 0.75rem));
-}
+/* .hud-top {
+  padding-top: 0;
+} */
 
 .hud-bottom {
   padding-bottom: max(1.125rem, calc(var(--safe-bottom) + 0.75rem));
 }
 
 .enemy-hud-row {
-  padding-left: 20px;
-  padding-right: 20px;
+  padding-left: 0;
+  padding-right: 0;
   display: flex;
-  gap: 14px;
-  justify-content: flex-end;
-  align-items: flex-start;
+  grid-template-columns: minmax(0, 1fr) clamp(132px, 34vw, 400px);
+  column-gap: 0px;
+  align-items: end;
+  width: 100%;
 }
 
 .enemy-avatar-figure {
-  width: clamp(156px, 24vw, 252px);
-  height: clamp(156px, 24vw, 252px);
+  width: clamp(132px, 34vw, 400px);
+  height: clamp(132px, 34vw, 400px);
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
   overflow: hidden;
   pointer-events: none;
   filter: drop-shadow(0 4px 0 #141414);
-  margin-top: -12px;
-  margin-right: -6px;
+  flex-shrink: 0;
+  margin-top: 0;
+  margin-right: 0;
+  justify-self: end;
+  align-self: end;
 }
 
 .enemy-avatar-img {
@@ -1967,23 +1971,29 @@ button {
 }
 
 .enemy-panel {
-  width: min(240px, calc(100vw - 48px));
-  padding: 10px;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 9px 9px;
   border-bottom-right-radius: 12px;
+  align-self: end;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
 }
 
 .enemy-panel .bar-row {
-  grid-template-columns: 24px minmax(0, 1fr) 64px;
+  align-self: end;
+  grid-template-columns: 0.5fr minmax(0, 5fr) 1fr;;
   column-gap: 2px;
 }
 
 .enemy-panel .hp-number {
-  width: 64px;
-  min-width: 64px;
+  width: 56px;
+  min-width: 56px;
   max-width: none;
-  flex: 0 0 64px;
+  flex: 0 0 200px;
   justify-self: end;
   text-align: right;
+  font-size: 16px;
 }
 
 .mini-row {
@@ -2005,7 +2015,7 @@ button {
 
 .bar-row {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 64px;
+  grid-template-columns: 2fr minmax(0, 10fr) 1fr;
   align-items: center;
   gap: 2px;
 }
@@ -2066,10 +2076,13 @@ button {
 
 .timer-row {
   min-height: 0;
+  position: absolute;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: clamp(18px, 5vh, 40px);
+  /* justify-content: center; */
+  /* align-items: flex-start; */
+  padding-top: clamp(14px, 5vh, 16px);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .timer-row.is-hidden #timer-display {
@@ -2078,15 +2091,16 @@ button {
 }
 
 #timer-display {
-  min-width: 140px;
-  padding: 0 45px;
+  min-width: 100px;
+  /*padding: 0px 0px;*/
   overflow: visible;
   text-align: center;
-  font-size: clamp(3.5rem, 16vw, 4.5rem);
+  font-size: clamp(1rem, 2vw, 4.5rem);
   line-height: 1;
   font-weight: 900;
   font-style: italic;
   letter-spacing: 0;
+  transform: none;
   filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.04));
 }
 
@@ -2094,11 +2108,15 @@ button {
   width: 100%;
   padding-left: 20px;
   padding-right: 20px;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .player-panel-stack {
   position: relative;
+  width: 100%;
 }
 
 .player-avatar-figure {
@@ -2106,8 +2124,8 @@ button {
   left: clamp(4px, 1.3vw, 14px);
   bottom: clamp(10px, 1.8vh, 20px);
   z-index: 1;
-  width: clamp(348px, 79.2vw, 516px);
-  height: clamp(300px, 72vw, 468px);
+  width: clamp(328px, 76vw, 520px);
+  height: clamp(286px, 69vw, 468px);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
@@ -2129,9 +2147,10 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  width: 100%;
+  width: min(100%, 680px);
+  margin-inline: auto;
   margin-left: 0;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .skill-button {
@@ -2594,25 +2613,113 @@ button {
   box-shadow: none;
 }
 
+.battle-hud-top,
+.battle-hud-center,
+.battle-hud-bottom {
+  width: 100%;
+}
+
+.battle-hud-top {
+  position: relative;
+  display: flex;
+  padding-top: 10px;
+  /* padding-left: 10px; */
+  /* padding-right: 10px; */
+}
+
+.battle-hud-center {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.battle-hud-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* padding-left: 14px; */
+  padding-right: 14px;
+  padding-bottom: max(0.4rem, calc(var(--safe-bottom) + 0.45rem));
+}
+
+.enemy-hud {
+  position: relative;
+  min-width: 0;
+  margin-left: 0;
+  margin-top: 0;
+}
+
+.player-hud {
+  display: grid;
+  grid-template-columns: clamp(118px, 32vw, 154px) minmax(0, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.player-portrait-column {
+  position: relative;
+  min-height: 186px;
+}
+
+.player-info-column {
+  min-width: 0;
+}
+
+.player-id-badge {
+  display: flex;
+  position: absolute;
+  left: 8px;
+  bottom: 30px;
+  z-index: 5;
+  padding: 8px 10px;
+  min-width: 92px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  box-shadow: 4px 4px 0 #0f172a;
+}
+
+.skill-row {
+  align-self: center;
+}
+
 @media (min-width: 768px) {
   .study-subhome {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .enemy-panel {
-    width: 300px;
+    width: 100%;
   }
 
   .player-area {
-    max-width: 560px;
+    max-width: 720px;
     width: 100%;
     align-self: center;
   }
 
-  .player-avatar-figure {
+  /* .player-avatar-figure {
     left: clamp(10px, 1.4vw, 18px);
     bottom: clamp(14px, 1.8vh, 24px);
-    width: clamp(432px, 57.6vw, 648px);
-    height: clamp(360px, 50.4vw, 588px);
+    width: clamp(420px, 56vw, 660px);
+    height: clamp(356px, 49vw, 588px);
+  } */
+
+  .enemy-avatar-figure {
+    width: clamp(200px, 24vw, 320px);
+    height: clamp(200px, 24vw, 320px);
+    /* margin-top: -14px; */
+    margin-right: 2px;
+  }
+
+  #timer-display {
+    font-size: clamp(3.5rem, 16vw, 4.5rem);
+  }
+
+  .skill-bar {
+    width: min(100%, 720px);
   }
 }

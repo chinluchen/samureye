@@ -1,87 +1,105 @@
 <template>
   <div id="ui-layer">
-    <div class="hud-top enemy-hud-row">
-      <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
-        <div class="mini-row">
-          <span>{{ opponentLabelText }}</span>
-        </div>
-
-        <div class="bar-row">
-          <span class="hp-prefix">HP</span>
-          <div class="hp-track hp-track-small">
-            <div class="hp-fill enemy-fill" :style="{ width: opponentHpPercent }"></div>
+    <div class="battle-hud-top">
+      <button
+          v-if="shouldShowBattleMenuTrigger"
+            type="button"
+            class="battle-menu-trigger pixel-border"
+            @click="$emit('open-battle-menu')"
+            >
+              選單
+      </button>
+        <div class="timer-row" :class="{ 'is-hidden': hideTimer }">
+          <div id="timer-display">
+            戰鬥時間： {{ timeLeft.toFixed(1) }} 秒
           </div>
-          <span class="hp-number">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
+        </div>
+      <div class="enemy-hud enemy-hud-row">
+        <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
+          <div class="mini-row">
+            <span>{{ opponentLabelText }}</span>
+          </div>
+          <div class="bar-row">
+            <span class="hp-prefix">HP</span>
+            <div class="hp-track hp-track-small">
+              <div class="hp-fill enemy-fill" :style="{ width: opponentHpPercent }"></div>
+            </div>
+            <span class="hp-number">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
+          </div>
         </div>
       </div>
       <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
         <img class="enemy-avatar-img" :src="resolvedOpponentAvatarUrl" alt="">
       </div>
     </div>
-
-    <div class="timer-row" :class="{ 'is-hidden': hideTimer }">
-      <div id="timer-display">
-        {{ timeLeft.toFixed(1) }}
-      </div>
+    
+    <div class="battle-hud-center">       
     </div>
 
-    <div class="hud-bottom player-area">
-      <div v-if="!hideSkillHud" id="skill-bar-anchor" class="skill-bar">
-        <button
-          v-for="skill in skills"
-          :key="skill.id"
-          :id="`skill-button-${skill.id}`"
-          type="button"
-          class="skill-button"
-          :class="{ 'is-ready': isSkillReady(skill), 'is-cooling': isSkillCooling(skill.id) }"
-          :disabled="isSkillDisabled(skill)"
-          @touchstart.stop="$emit('use-skill', skill)"
-          @click.stop="$emit('use-skill', skill)"
-        >
-          <span
-            v-if="isSkillCooling(skill.id)"
-            class="skill-cooldown-overlay"
-            :style="getSkillCooldownStyle(skill)"
-          ></span>
-          <span class="skill-name">
+    <div class="hud-bottom battle-hud-bottom">
+      <div class="player-area">
+        <div v-if="!hideSkillHud" id="skill-bar-anchor" class="skill-bar skill-row">
+          <button
+            v-for="skill in skills"
+            :key="skill.id"
+            :id="`skill-button-${skill.id}`"
+            type="button"
+            class="skill-button"
+            :class="{ 'is-ready': isSkillReady(skill), 'is-cooling': isSkillCooling(skill.id) }"
+            :disabled="isSkillDisabled(skill)"
+            @touchstart.stop="$emit('use-skill', skill)"
+            @click.stop="$emit('use-skill', skill)"
+          >
             <span
-              v-for="(line, idx) in formatSkillNameLines(skill.name)"
-              :key="`${skill.id}-line-${idx}`"
-              class="skill-name-line"
-            >
-              {{ line }}
+              v-if="isSkillCooling(skill.id)"
+              class="skill-cooldown-overlay"
+              :style="getSkillCooldownStyle(skill)"
+            ></span>
+            <span class="skill-name">
+              <span
+                v-for="(line, idx) in formatSkillNameLines(skill.name)"
+                :key="`${skill.id}-line-${idx}`"
+                class="skill-name-line"
+              >
+                {{ line }}
+              </span>
             </span>
-          </span>
-          <span v-if="getSkillCooldownLeft(skill.id) > 0" class="skill-cooldown-badge">
-            {{ formatSkillCooldown(skill.id) }}s
-          </span>
-        </button>
-      </div>
-
-      <div class="player-panel-stack">
-        <div class="player-avatar-figure" aria-hidden="true">
-          <img class="player-avatar-img" :src="playerAvatarUrl" alt="">
-        </div>
-        <div id="player-hp-anchor" class="pixel-border player-panel">
-        <div class="mini-row">
-          <span>{{ playerLabelText }}</span>
+            <span v-if="getSkillCooldownLeft(skill.id) > 0" class="skill-cooldown-badge">
+              {{ formatSkillCooldown(skill.id) }}s
+            </span>
+          </button>
         </div>
 
-        <div class="bar-row">
-          <span class="hp-prefix">HP</span>
-          <div class="hp-track hp-track-large">
-            <div class="hp-fill player-fill" :style="{ width: playerHpPercent }"></div>
+        <div class="player-hud">
+          <div class="player-portrait-column">
+            <div class="player-avatar-figure" aria-hidden="true">
+              <img class="player-avatar-img" :src="playerAvatarUrl" alt="">
+            </div>
+            <div class="player-id-badge pixel-border">
+              {{ playerLabelText }}
+            </div>
+
+
           </div>
-          <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
-        </div>
+          <div class="player-info-column">
+            <div id="player-hp-anchor" class="pixel-border player-panel">
+              <div class="bar-row">
+                <span class="hp-prefix">HP</span>
+                <div class="hp-track hp-track-large">
+                  <div class="hp-fill player-fill" :style="{ width: playerHpPercent }"></div>
+                </div>
+                <span class="hp-number">{{ Math.max(0, Math.ceil(playerHp)) }} / {{ playerMaxHp }}</span>
+              </div>
 
-        <div v-if="!hideSkillHud" id="player-mp-anchor" class="bar-row mp-row">
-          <span class="mp-prefix">MP</span>
-          <div class="hp-track mp-track">
-            <div class="mp-fill" :style="{ width: skillPointsPercent }"></div>
+              <div v-if="!hideSkillHud" id="player-mp-anchor" class="bar-row mp-row">
+                <span class="mp-prefix">MP</span>
+                <div class="hp-track mp-track">
+                  <div class="mp-fill" :style="{ width: skillPointsPercent }"></div>
+                </div>
+                <span class="hp-number mp-number">{{ skillPointsDisplay }} / 100</span>
+              </div>
+            </div>
           </div>
-          <span class="hp-number mp-number">{{ skillPointsDisplay }} / 100</span>
-        </div>
         </div>
       </div>
     </div>
@@ -92,6 +110,10 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+  shouldShowBattleMenuTrigger: {
+    type: Boolean,
+    default: false
+  },
   playerAvatarUrl: {
     type: String,
     required: true
@@ -174,7 +196,7 @@ const props = defineProps({
   }
 });
 
-defineEmits(['use-skill']);
+defineEmits(['use-skill', 'open-battle-menu']);
 
 const opponentHpPercent = computed(() => `${props.opponentHp / props.opponentMaxHp * 100}%`);
 const playerHpPercent = computed(() => `${props.playerHp / props.playerMaxHp * 100}%`);

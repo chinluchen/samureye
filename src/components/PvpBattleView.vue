@@ -1,14 +1,5 @@
 <template>
   <div id="game-world-wrapper">
-    <button
-      v-if="shouldShowBattleMenuTrigger"
-      type="button"
-      class="battle-menu-trigger pixel-border"
-      @click="$emit('open-battle-menu')"
-    >
-      選單
-    </button>
-
     <div id="fx-layer"></div>
 
     <CutsceneLayer
@@ -32,6 +23,7 @@
     />
 
     <HudLayer
+      :should-show-battle-menu-trigger="shouldShowBattleMenuTrigger"
       :player-avatar-url="selectedCharacter.avatarUrl"
       :opponent-avatar-url="opponentAvatarUrl"
       :player-name="battleHudPlayerName"
@@ -52,6 +44,7 @@
       :game-state="gameState"
       :player-debuff="playerDebuff"
       :hide-timer="isTutorialUntimed"
+      @open-battle-menu="$emit('open-battle-menu')"
       @use-skill="$emit('use-skill', $event)"
     />
 
