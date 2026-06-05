@@ -1951,16 +1951,21 @@ button {
   width: clamp(132px, 34vw, 400px);
   height: clamp(132px, 34vw, 400px);
   display: flex;
+  position: absolute;
   align-items: flex-end;
   justify-content: flex-end;
   overflow: hidden;
   pointer-events: none;
   filter: drop-shadow(0 4px 0 #141414);
   flex-shrink: 0;
-  margin-top: 0;
+  margin-top: 30px;
   margin-right: 0;
   justify-self: end;
   align-self: end;
+  width: clamp(200px, 24vw, 320px);
+  height: clamp(200px, 24vw, 320px);
+  margin-top: -14px;
+  margin-right: 2px;
 }
 
 .enemy-avatar-img {
@@ -1971,8 +1976,8 @@ button {
 }
 
 .enemy-panel {
-  min-width: 0;
-  width: 100%;
+  min-width: 30px;
+  width:70%;
   padding: 8px 9px 9px;
   border-bottom-right-radius: 12px;
   align-self: end;
@@ -1980,20 +1985,15 @@ button {
   grid-template-rows: auto 1fr auto;
 }
 
-.enemy-panel .bar-row {
-  align-self: end;
-  grid-template-columns: 0.5fr minmax(0, 5fr) 1fr;;
-  column-gap: 2px;
-}
 
 .enemy-panel .hp-number {
-  width: 56px;
-  min-width: 56px;
-  max-width: none;
-  flex: 0 0 200px;
+  width: auto;
+  min-width: 64px;
+  max-width: 72px;
   justify-self: end;
   text-align: right;
-  font-size: 16px;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .mini-row {
@@ -2014,14 +2014,14 @@ button {
 }
 
 .bar-row {
-  display: grid;
-  grid-template-columns: 2fr minmax(0, 10fr) 1fr;
+  display: flex;
+  grid-template-columns: 2fr minmax(0, 10fr) 2fr;
   align-items: center;
   gap: 2px;
 }
 
 .hp-prefix {
-  width: 24px;
+  width:24px;
   min-width: 24px;
   flex: 0 0 24px;
   font-size: 16px;
@@ -2059,6 +2059,19 @@ button {
 
 .player-fill {
   background: var(--player);
+}
+
+.hp-number-enemy {
+  /* width: 64px; */
+  /* min-width: 64px; */
+  max-width: none;
+  /* flex: 0 0 64px; */
+  justify-self: end;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .hp-number {
@@ -2645,8 +2658,9 @@ button {
 .enemy-hud {
   position: relative;
   min-width: 0;
-  margin-left: 0;
-  margin-top: 0;
+  margin-left: 16px;
+  margin-top: 10px;
+  margin-right: 40px;
 }
 
 .player-hud {
@@ -2691,10 +2705,6 @@ button {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .enemy-panel {
-    width: 100%;
-  }
-
   .player-area {
     max-width: 720px;
     width: 100%;
@@ -2707,13 +2717,6 @@ button {
     width: clamp(420px, 56vw, 660px);
     height: clamp(356px, 49vw, 588px);
   } */
-
-  .enemy-avatar-figure {
-    width: clamp(200px, 24vw, 320px);
-    height: clamp(200px, 24vw, 320px);
-    /* margin-top: -14px; */
-    margin-right: 2px;
-  }
 
   #timer-display {
     font-size: clamp(3.5rem, 16vw, 4.5rem);

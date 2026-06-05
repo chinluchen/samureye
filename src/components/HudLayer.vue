@@ -14,7 +14,9 @@
             戰鬥時間： {{ timeLeft.toFixed(1) }} 秒
           </div>
         </div>
-      <div class="enemy-hud enemy-hud-row">
+    </div>
+    <div class="enemy-hud">
+      <div class="enemy-hud-row">
         <div id="enemy-hp-anchor" class="pixel-border enemy-panel">
           <div class="mini-row">
             <span>{{ opponentLabelText }}</span>
@@ -24,15 +26,14 @@
             <div class="hp-track hp-track-small">
               <div class="hp-fill enemy-fill" :style="{ width: opponentHpPercent }"></div>
             </div>
-            <span class="hp-number">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
+            <span class="hp-number-enemy">{{ Math.max(0, Math.ceil(opponentHp)) }} / {{ opponentMaxHp }}</span>
           </div>
         </div>
       </div>
-      <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
+      <!-- <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
         <img class="enemy-avatar-img" :src="resolvedOpponentAvatarUrl" alt="">
-      </div>
+      </div> -->
     </div>
-    
     <div class="battle-hud-center">       
     </div>
 
