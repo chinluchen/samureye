@@ -30,9 +30,9 @@
           </div>
         </div>
       </div>
-      <!-- <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
+      <div v-if="resolvedOpponentAvatarUrl" class="enemy-avatar-figure" aria-hidden="true">
         <img class="enemy-avatar-img" :src="resolvedOpponentAvatarUrl" alt="">
-      </div> -->
+      </div>
     </div>
     <div class="battle-hud-center">       
     </div>
