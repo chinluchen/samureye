@@ -2263,6 +2263,8 @@ button {
   margin-bottom: 8px;
   padding: 10px;
   border-top-right-radius: 16px;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
   background: rgba(255, 255, 255, 0.95);
   position: relative;
   z-index: 3;
@@ -2631,7 +2633,7 @@ button {
   gap: 8px;
   /* padding-left: 14px; */
   padding-right: 14px;
-  padding-bottom: max(0.4rem, calc(var(--safe-bottom) + 0.45rem));
+  /* padding-bottom: max(0.4rem, calc(var(--safe-bottom) + 0.45rem)); */
 }
 
 .enemy-hud {
