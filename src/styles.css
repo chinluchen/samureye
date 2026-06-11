@@ -2015,7 +2015,7 @@ button {
 }
 
 .bar-row .hp-number {
- margin-left: 2px;
+  margin-left: 2px;
 }
 
 .hp-prefix {
@@ -2072,8 +2072,10 @@ button {
 }
 
 .hp-number {
-  max-width: none;
-  flex: 0 0 64px;
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  flex: 0 0 96px;
   justify-self: end;
   text-align: right;
   white-space: nowrap;
@@ -2133,7 +2135,7 @@ button {
   /* left: clamp(4px, 1.3vw, 14px); */
   /* bottom: clamp(10px, 1vh, 20px); */
   left:0;
-  bottom: -140px;
+  bottom: 80px;
   z-index: 1;
   width: clamp(328px, 76vw, 520px);
   height: clamp(286px, 69vw, 468px);
@@ -2161,7 +2163,7 @@ button {
   width: min(100%, 680px);
   /* margin-inline: auto; */
   margin-left: 0;
-  margin-bottom: 0;
+  margin-bottom: 10px;
   /* margin-top: 200px; */
 }
 
@@ -2304,15 +2306,6 @@ button {
 .mp-number {
   color: #111;
 }
-
-/* .player-panel .mp-number {
-  width: 64px;
-  min-width: 64px; 
-  max-width: none;
-  flex: 0 0 64px;
-  justify-self: end;
-  text-align: right;
-} */
 
 .slash-line {
   position: absolute;
@@ -2658,9 +2651,10 @@ button {
 }
 
 .player-portrait-column {
-  position: relative;
-  /* min-height: 186px; */
-  min-height: clamp(286px, 69vw, 468px);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .player-info-column {

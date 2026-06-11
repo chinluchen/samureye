@@ -36,17 +36,41 @@
     </div>
     <div class="battle-hud-center">       
     </div>
-
     <div class="hud-bottom battle-hud-bottom">
       <div class="player-area">
-
-
         <div class="player-hud">
-          <div class="player-portrait-column">
-            <div class="player-avatar-figure" aria-hidden="true">
-              <img class="player-avatar-img" :src="playerAvatarUrl" alt="">
-            </div>
-          </div>
+          <div v-if="!hideSkillHud" id="skill-bar-anchor" class="skill-bar skill-row">
+          <button
+            v-for="skill in skills"
+            :key="skill.id"
+            :id="`skill-button-${skill.id}`"
+            type="button"
+            class="skill-button"
+            :class="{ 'is-ready': isSkillReady(skill), 'is-cooling': isSkillCooling(skill.id) }"
+            :disabled="isSkillDisabled(skill)"
+            @touchstart.stop="$emit('use-skill', skill)"
+            @click.stop="$emit('use-skill', skill)"
+          >
+            <span
+              v-if="isSkillCooling(skill.id)"
+              class="skill-cooldown-overlay"
+              :style="getSkillCooldownStyle(skill)"
+            ></span>
+            <span class="skill-name">
+              <span
+                v-for="(line, idx) in formatSkillNameLines(skill.name)"
+                :key="`${skill.id}-line-${idx}`"
+                class="skill-name-line"
+              >
+                {{ line }}
+              </span>
+            </span>
+            <span v-if="getSkillCooldownLeft(skill.id) > 0" class="skill-cooldown-badge">
+              {{ formatSkillCooldown(skill.id) }}s
+            </span>
+          </button>
+        </div>
+
           <div class="player-info-column">
             <div id="player-hp-anchor" class="pixel-border player-panel">
               <div class="mini-row">
@@ -70,6 +94,11 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+    <div class="player-portrait-column">
+      <div class="player-avatar-figure" aria-hidden="true">
+        <img class="player-avatar-img" :src="playerAvatarUrl" alt="">
       </div>
     </div>
   </div>
