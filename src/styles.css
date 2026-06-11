@@ -1978,20 +1978,24 @@ button {
 
 
 .enemy-panel .hp-number {
-  width: auto;
-  min-width: 64px;
-  max-width: 72px;
+  /* width: auto;
+  min-width: 64px; */
+  max-width: none;
   justify-self: end;
   text-align: right;
   font-size: 14px;
+  font-weight: 900;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  margin-right: 2px;
+  padding-left:100px;
 }
 
 .mini-row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
   font-size: 16px;
   font-weight: 900;
 }
@@ -2006,9 +2010,12 @@ button {
 
 .bar-row {
   display: flex;
-  grid-template-columns: 2fr minmax(0, 10fr) 2fr;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+}
+
+.bar-row .hp-number {
+ margin-left: 2px;
 }
 
 .hp-prefix {
@@ -2023,7 +2030,8 @@ button {
 }
 
 .hp-track {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: #e5e7eb;
   border: 1px solid #000;
   border-radius: 999px;
@@ -2053,28 +2061,24 @@ button {
 }
 
 .hp-number-enemy {
-  /* width: 64px; */
-  /* min-width: 64px; */
-  max-width: none;
-  /* flex: 0 0 64px; */
-  justify-self: end;
-  text-align: right;
-  font-size: 14px;
-  font-weight: 900;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.hp-number {
-  width: 64px;
-  min-width: 64px;
   max-width: none;
   flex: 0 0 64px;
   justify-self: end;
   text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.hp-number {
+  max-width: none;
+  flex: 0 0 64px;
+  justify-self: end;
+  text-align: right;
+  white-space: nowrap;
   font-size: 20px;
   font-weight: 900;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2110,23 +2114,26 @@ button {
 
 .player-area {
   width: 100%;
-  padding-left: 20px;
-  padding-right: 20px;
+  padding-left: 10px;
+  padding-right: 10px;
   display: flex;
+  position: relative;
   flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+  /* align-items: stretch; */
+  /* gap: 30px; */
 }
 
 .player-panel-stack {
-  position: relative;
+  /* position: relative; */
   width: 100%;
 }
 
 .player-avatar-figure {
   position: absolute;
-  left: clamp(4px, 1.3vw, 14px);
-  bottom: clamp(10px, 1.8vh, 20px);
+  /* left: clamp(4px, 1.3vw, 14px); */
+  /* bottom: clamp(10px, 1vh, 20px); */
+  left:0;
+  bottom: -140px;
   z-index: 1;
   width: clamp(328px, 76vw, 520px);
   height: clamp(286px, 69vw, 468px);
@@ -2152,9 +2159,10 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   width: min(100%, 680px);
-  margin-inline: auto;
+  /* margin-inline: auto; */
   margin-left: 0;
   margin-bottom: 0;
+  /* margin-top: 200px; */
 }
 
 .skill-button {
@@ -2265,21 +2273,7 @@ button {
   z-index: 2;
 }
 
-.player-panel .hp-track,
-.player-panel .mp-track {
-  width: 100%;
-  min-width: 0;
-}
 
-.mp-row {
-  margin-top: 4px;
-  gap: 2px;
-}
-
-.player-panel .mp-row {
-  grid-template-columns: 24px minmax(0, 1fr) 64px;
-  column-gap: 2px;
-}
 
 .mp-prefix {
   width: 24px;
@@ -2311,14 +2305,14 @@ button {
   color: #111;
 }
 
-.player-panel .mp-number {
+/* .player-panel .mp-number {
   width: 64px;
-  min-width: 64px;
+  min-width: 64px; 
   max-width: none;
   flex: 0 0 64px;
   justify-self: end;
   text-align: right;
-}
+} */
 
 .slash-line {
   position: absolute;
@@ -2635,6 +2629,7 @@ button {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  height: 100%;
 }
 
 .battle-hud-bottom {
@@ -2656,25 +2651,27 @@ button {
 
 .player-hud {
   display: grid;
-  grid-template-columns: clamp(118px, 32vw, 154px) minmax(0, 1fr);
+  grid-template-columns: clamp(118px, 32vw, px) minmax(0, 1fr);
   align-items: end;
-  gap: 10px;
+  margin-left: 10px;
+  /* gap: 10px; */
 }
 
 .player-portrait-column {
   position: relative;
-  min-height: 186px;
+  /* min-height: 186px; */
+  min-height: clamp(286px, 69vw, 468px);
 }
 
 .player-info-column {
   min-width: 0;
 }
 
-.player-id-badge {
+/* .player-id-badge {
   display: flex;
   position: absolute;
-  left: 8px;
-  bottom: 30px;
+  left: 10px;
+  bottom: 110px;
   z-index: 5;
   padding: 8px 10px;
   min-width: 92px;
@@ -2685,7 +2682,7 @@ button {
   font-weight: 900;
   letter-spacing: 0.02em;
   box-shadow: 4px 4px 0 #0f172a;
-}
+} */
 
 .skill-row {
   align-self: center;
@@ -2696,11 +2693,6 @@ button {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .player-area {
-    max-width: 720px;
-    width: 100%;
-    align-self: center;
-  }
 
   /* .player-avatar-figure {
     left: clamp(10px, 1.4vw, 18px);
@@ -2713,7 +2705,4 @@ button {
     font-size: clamp(3.5rem, 16vw, 4.5rem);
   }
 
-  .skill-bar {
-    width: min(100%, 720px);
-  }
 }

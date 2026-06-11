@@ -281,7 +281,10 @@ export function useBattleGame({
 
     const criticalRate = clampNumber(battleStats.enemyCriticalRate, 0, 1, 0);
     const criticalMultiplier = Math.max(1, Number(battleStats.enemyCriticalMultiplier) || 1);
-    const baseDamage = Math.max(1, Math.round(Number(battleStats.enemyDamage) || 1));
+    const baseDamage = Math.max(0, Math.round(Number(battleStats.enemyDamage) || 0));
+    if (baseDamage <= 0) {
+      return;
+    }
     const isCritical = Math.random() < criticalRate;
     const finalDamage = isCritical
       ? Math.max(1, Math.round(baseDamage * criticalMultiplier))
@@ -951,7 +954,7 @@ export function useBattleGame({
     battleStats.targetHitDamage = Math.max(1, Math.round(stats.targetHitDamage ?? GAME_CONFIG.targetHitDamage));
     battleStats.skillPointGainPerHit = Math.max(1, Math.round(stats.skillPointGainPerHit ?? GAME_CONFIG.skillPointGainPerHit));
     battleStats.enemyHp = nextEnemyMaxHp;
-    battleStats.enemyDamage = Math.max(1, Math.round(stats.enemyDamage ?? stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
+    battleStats.enemyDamage = Math.max(0, Math.round(stats.enemyDamage ?? stats.enemyAttackDamage ?? GAME_CONFIG.enemyAttackDamage));
     battleStats.enemyAttackIntervalMs = Math.max(
       MIN_ENEMY_ATTACK_INTERVAL_MS,
       Math.round(stats.enemyAttackIntervalMs ?? fallbackAttackIntervalMs)
