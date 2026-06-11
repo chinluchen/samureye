@@ -128,7 +128,7 @@ export function usePveBattleFlow({
     const stage = resolvedCurrentStageConfig.value ?? {};
     return {
       enemyHp: clampInt(stage.enemyHp, 1, GAME_CONFIG.maxHp),
-      enemyDamage: clampInt(stage.enemyDamage, 1, GAME_CONFIG.enemyAttackDamage),
+      enemyDamage: clampInt(stage.enemyDamage, 0, GAME_CONFIG.enemyAttackDamage),
       enemyAttackIntervalMs: clampInt(stage.enemyAttackIntervalMs, 300, 600),
       enemyAttackIntervalVarianceMs: clampInt(stage.enemyAttackIntervalVarianceMs, 0, 0),
       enemyMissRate: clampPercent(stage.enemyMissRate, 0, 0.95, 0),

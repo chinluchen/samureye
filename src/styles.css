@@ -1933,9 +1933,9 @@ button {
   padding-top: 0;
 } */
 
-.hud-bottom {
+/* .hud-bottom {
   padding-bottom: max(1.125rem, calc(var(--safe-bottom) + 0.75rem));
-}
+} */
 
 .enemy-hud-row {
   padding-left: 0;
