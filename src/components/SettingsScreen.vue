@@ -69,29 +69,55 @@
         <span class="settings-gamecenter-label">玩家名稱</span>
         <span class="settings-gamecenter-value">{{ gameCenterDisplayName }}</span>
       </div>
-      <div class="settings-gamecenter-row settings-gamecenter-row-input">
-        <label class="settings-gamecenter-label" for="settings-pvp-nickname">遊戲暱稱</label>
-        <input
-          id="settings-pvp-nickname"
-          class="settings-gamecenter-input"
-          type="text"
-          maxlength="16"
-          :value="pvpNickname"
-          placeholder="輸入對戰暱稱"
-          @input="$emit('pvp-nickname-change', $event.target.value)"
-        >
+      <div class="settings-gamecenter-row settings-gamecenter-row-nickname">
+        <span class="settings-gamecenter-label">遊戲暱稱</span>
+        <span class="settings-gamecenter-value settings-gamecenter-value-wrap">{{ displayedPvpNickname }}</span>
+        <button type="button" class="battle-menu-button battle-menu-button-subtle settings-gamecenter-change-btn" @click="openNicknameDialog">變更</button>
       </div>
       <p class="settings-gamecenter-note">對戰顯示使用此暱稱，真實身分仍為 Game Center playerId。</p>
       <button type="button" class="battle-menu-button" @click="$emit('gamecenter-connect')">連接 Game Center</button>
-      <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('gamecenter-refresh')">重新檢查 Game Center</button>
+      <!-- <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('gamecenter-refresh')">重新檢查 Game Center</button> -->
       <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="$emit('gamecenter-clear-local')">清除本機綁定資訊</button>
     </article>
+
+    <div
+      v-if="isNicknameDialogOpen"
+      class="settings-pvp-dialog-overlay"
+      role="presentation"
+    >
+      <form
+        class="settings-card pixel-border settings-pvp-dialog-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-pvp-dialog-title"
+        @submit.prevent="confirmNicknameChange"
+      >
+        <h3 id="settings-pvp-dialog-title" class="settings-section-title">變更遊戲暱稱</h3>
+        <label class="settings-gamecenter-label" for="settings-pvp-nickname-dialog">暱稱</label>
+        <input
+          id="settings-pvp-nickname-dialog"
+          ref="nicknameInputRef"
+          v-model="nicknameDraft"
+          class="settings-gamecenter-input"
+          type="text"
+          maxlength="16"
+          placeholder="輸入對戰暱稱"
+        >
+        <p class="settings-gamecenter-note">
+          暱稱最多 16 個字元，確認後才會更新。<span v-if="nicknameError" class="settings-pvp-dialog-error">{{ nicknameError }}</span>
+        </p>
+        <div class="settings-pvp-dialog-actions">
+          <button type="button" class="battle-menu-button battle-menu-button-subtle" @click="cancelNicknameChange">取消</button>
+          <button type="submit" class="battle-menu-button" :disabled="!canConfirmNickname">確認</button>
+        </div>
+      </form>
+    </div>
 
   </section>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 
 const props = defineProps({
   volume: { type: Number, required: true },
@@ -158,4 +184,56 @@ const gameCenterDisplayName = computed(() => {
     || String(props.gameCenterSession?.alias || '').trim();
   return name || '尚未取得';
 });
+
+const displayedPvpNickname = computed(() => {
+  const text = String(props.pvpNickname ?? '').trim();
+  return text || '尚未設定';
+});
+
+const isNicknameDialogOpen = ref(false);
+const nicknameDraft = ref('');
+const nicknameError = ref('');
+const nicknameInputRef = ref(null);
+
+const canConfirmNickname = computed(() => {
+  return Boolean(sanitizeNicknameDraft(nicknameDraft.value));
+});
+
+function sanitizeNicknameDraft(value = '') {
+  const raw = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return '';
+  return Array.from(raw).slice(0, 16).join('').trim();
+}
+
+async function openNicknameDialog() {
+  nicknameDraft.value = String(props.pvpNickname ?? '');
+  nicknameError.value = '';
+  isNicknameDialogOpen.value = true;
+  await nextTick();
+  nicknameInputRef.value?.focus?.();
+  nicknameInputRef.value?.select?.();
+}
+
+function closeNicknameDialog() {
+  isNicknameDialogOpen.value = false;
+  nicknameError.value = '';
+  nicknameDraft.value = String(props.pvpNickname ?? '');
+}
+
+function cancelNicknameChange() {
+  closeNicknameDialog();
+}
+
+function confirmNicknameChange() {
+  const normalizedNickname = sanitizeNicknameDraft(nicknameDraft.value);
+  if (!normalizedNickname) {
+    nicknameError.value = '暱稱不可為空';
+    return;
+  }
+
+  emit('pvp-nickname-change', normalizedNickname);
+  closeNicknameDialog();
+}
 </script>

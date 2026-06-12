@@ -814,6 +814,11 @@ button {
   align-items: start;
 }
 
+.settings-gamecenter-row-nickname {
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .settings-gamecenter-label {
   font-size: 0.82rem;
   font-weight: 900;
@@ -861,6 +866,10 @@ button {
   white-space: nowrap;
 }
 
+.settings-gamecenter-value-wrap {
+  min-width: 0;
+}
+
 .settings-gamecenter-input {
   width: 100%;
   min-height: 38px;
@@ -871,6 +880,42 @@ button {
   font-weight: 800;
   color: #0f172a;
   background: rgba(255, 255, 255, 0.84);
+}
+
+.settings-gamecenter-change-btn {
+  min-width: 72px;
+  height: 38px;
+  padding: 0 12px;
+}
+
+.settings-pvp-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 12, 24, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.settings-pvp-dialog-card {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+
+.settings-pvp-dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.settings-pvp-dialog-error {
+  color: #b91c1c;
+  font-weight: 800;
 }
 
 .settings-gamecenter-note {
